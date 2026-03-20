@@ -111,13 +111,9 @@ fun WindowScope.SettingScene(vm: SettingViewModel, config: M3U8FilterConfig, onC
     DisposableEffect("setting") {
         vm.sync()
         onDispose {
+            log.info("设置已保存：\n{}", model.value.settingList.joinToString("\n"))
             SettingStore.write()
         }
-    }
-
-    DisposableEffect(model.value.settingList) {
-        log.info("settingList 修改")
-        onDispose { }
     }
 
     Box(
@@ -652,7 +648,7 @@ fun WindowScope.SettingScene(vm: SettingViewModel, config: M3U8FilterConfig, onC
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            PlayerType.entries.filter { it.id != PlayerType.Web.id }.forEach { type ->
+                            PlayerType.entries.forEach { type ->
                                 AssistChip(
                                     onClick = {
                                         SettingStore.setValue(
@@ -726,7 +722,7 @@ fun WindowScope.SettingScene(vm: SettingViewModel, config: M3U8FilterConfig, onC
                             maxLines = 1,
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(12.dp),
-                            enabled = playerSetting.value.first() != PlayerType.Innie.id,
+                            enabled = playerSetting.value.first() == PlayerType.Outie.id,
                             isError = !isPathValid || showPathWarning,
                             supportingText = {
                                 if (!isPathValid || showPathWarning) {
@@ -739,7 +735,7 @@ fun WindowScope.SettingScene(vm: SettingViewModel, config: M3U8FilterConfig, onC
                             }
                         )
 
-                        // 添加一个按钮用于验证路径
+                        // 验证路径
                         if (playerSetting.value.first() == PlayerType.Outie.id) {
                             Button(
                                 onClick = {
@@ -766,7 +762,7 @@ fun WindowScope.SettingScene(vm: SettingViewModel, config: M3U8FilterConfig, onC
                             }
                         }
                         Text(
-                            text = "播放器可配置为内部播放器、外部播放器;如果选择外部播放器,需要配置外置播放器路径才能播放视频",
+                            text = "播放器可配置为内部播放器、外部播放器或浏览器播放器;如果选择外部播放器,需要配置外置播放器路径才能播放视频",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(top = 4.dp)
@@ -1310,7 +1306,7 @@ fun AboutDialog(
                         )
 
                         Text(
-                            text = "1.1.3",
+                            text = "1.1.4",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                         )
