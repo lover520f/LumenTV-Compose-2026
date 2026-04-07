@@ -111,7 +111,7 @@ fun WindowScope.SettingScene(vm: SettingViewModel, config: M3U8FilterConfig, onC
     DisposableEffect("setting") {
         vm.sync()
         onDispose {
-            log.info("设置已保存：\n{}", model.value.settingList.joinToString("\n"))
+            log.info("设置已保存：{}", model.value.settingList.joinToString(", "))
             SettingStore.write()
         }
     }

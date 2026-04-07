@@ -13,6 +13,7 @@ import com.corner.bean.SettingStore
 import com.corner.catvodcore.util.Utils.printSystemInfo
 import com.corner.catvodcore.viewmodel.GlobalAppState
 import com.corner.init.Init
+import com.corner.init.TVLogConfigurator
 import com.corner.init.generateImageLoader
 import com.corner.ui.UpdateDialog
 import com.corner.ui.Util
@@ -37,6 +38,9 @@ private val log = LoggerFactory.getLogger("main")
 private const val CHANGE_LOG_URL = "https://raw.githubusercontent.com/clevebitr/LumenTV-Compose/refs/heads/main/CHANGELOG.md"
 
 fun main() {
+    // 初始化 Log4j2 日志配置
+    TVLogConfigurator.configure()
+    
     launchErrorCatcher()
     printSystemInfo()
 

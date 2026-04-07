@@ -1,11 +1,12 @@
 package com.corner.bean
 
-import ch.qos.logback.classic.Level
+import org.apache.logging.log4j.Level
 import com.corner.bean.enums.PlayerType
 import com.corner.catvodcore.util.Jsons
 import com.corner.catvodcore.util.Paths
 import com.corner.util.m3u8.M3U8FilterConfig
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
 import org.apache.commons.lang3.StringUtils
 import org.slf4j.LoggerFactory
 import java.nio.file.Files
@@ -95,7 +96,7 @@ enum class SettingType(val id: String) {
 object SettingStore {
     private val defaultList = listOf(
         Setting("vod", "点播", ""),
-        Setting("log", "日志级别", Level.INFO.levelStr),
+        Setting("log", "日志级别", Level.INFO.toString()),
         Setting("player", "播放器", "innie#"),
         Setting("proxy", "代理", "false#"),
         Setting("theme", "主题", "light"),
@@ -223,7 +224,8 @@ object SettingStore {
 
     fun setM3U8FilterConfig(config: M3U8FilterConfig) {
         log.debug("保存 M3U8FilterConfig: {}", config)
-        val configJson = Jsons.encodeToString(config)
+        val compactJson = Json { encodeDefaults = true }
+        val configJson = compactJson.encodeToString(config)
         setValue(SettingType.M3U8_FILTER_CONFIG, configJson)
     }
 

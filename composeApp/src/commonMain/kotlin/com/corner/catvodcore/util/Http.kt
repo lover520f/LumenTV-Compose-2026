@@ -19,16 +19,10 @@ import java.time.temporal.ChronoUnit
 import java.util.*
 import java.util.concurrent.TimeUnit
 import javax.net.ssl.*
-import java.util.logging.Logger
-import java.util.logging.Level
 
 class Http {
     companion object {
         private val log = LoggerFactory.getLogger(Http::class.java)
-
-        init {
-            Logger.getLogger(OkHttpClient::class.java.name).level = Level.FINE
-        }
 
         private var doh: DnsOverHttps? = null
         private var client: OkHttpClient? = null
@@ -84,24 +78,28 @@ class Http {
         private val builder: OkHttpClient.Builder
             get() {
                 val dispatcher = Dispatcher()
-                return OkHttpClient().newBuilder().connectTimeout(10, TimeUnit.SECONDS)
+                dispatcher.maxRequests = 64
+                dispatcher.maxRequestsPerHost = 5
+
+                return OkHttpClient().newBuilder()
+                    .connectTimeout(10, TimeUnit.SECONDS)
+                    .readTimeout(10, TimeUnit.SECONDS)
+                    .writeTimeout(10, TimeUnit.SECONDS)
                     .proxy(KtorClient.getProxy())
-                    .readTimeout(10, TimeUnit.SECONDS).writeTimeout(10, TimeUnit.SECONDS)
                     .followRedirects(true)
                     .sslSocketFactory(getSSLSocketFactory(), getX509TrustManager()!!)
-                    .hostnameVerifier((getHostnameVerifier()))
-//                    .callTimeout(Duration.of(3, ChronoUnit.SECONDS))
+                    .hostnameVerifier(getHostnameVerifier())
                     .dispatcher(dispatcher)
-                    .dns(dns("OkHttpClient"))
+                    .dns(dns())
+                    .addInterceptor(com.github.catvod.net.OkhttpInterceptor())
+                    .addInterceptor(com.corner.util.m3u8.M3U8AdFilterInterceptor.Interceptor())
             }
 
 
-        fun dns(info: String?): Dns {
+        fun dns(): Dns {
             return if (doh == null) {
-                log.info("[DNS:${info}]Using SYSTEM DNS")
                 Dns.SYSTEM
             } else {
-                log.info("[DNS:${info}]Using DoH DNS: ${doh!!.url}")
                 doh!!
             }
         }

@@ -109,8 +109,8 @@ object SiteViewModel {
     }
 
     fun detailContent(key: String, id: String): Result? {
-        // 切换视频时重置浏览器选择标志位
         DialogState.resetBrowserChoice()
+
         changeDialogState(false)
         _state.update { it.copy(isSpecialVideoLink = false) }
 
