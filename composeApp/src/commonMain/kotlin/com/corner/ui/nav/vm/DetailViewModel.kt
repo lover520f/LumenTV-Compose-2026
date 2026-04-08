@@ -151,7 +151,13 @@ class DetailViewModel : BaseViewModel() {
                     val list = SiteViewModel.getSearchResultActive().list
                     loadSearchResult(chooseVod, list)
                 } else {
-                    val dt = SiteViewModel.detailContent(chooseVod.site?.key ?: "", chooseVod.vodId)
+                    val dt = try {
+                        SiteViewModel.detailContent(chooseVod.site?.key ?: "", chooseVod.vodId)
+                    } catch (e: Exception) {
+                        log.error("加载详情失败: {}", e.message, e)
+                        SnackBar.postMsg("加载失败: ${e.message}", type = SnackBar.MessageType.ERROR)
+                        null
+                    }
                     if (chooseVod.vodId.isBlank()) return@launch
                     if (dt == null || dt.detailIsEmpty()) {
                         quickSearch()
@@ -163,7 +169,9 @@ class DetailViewModel : BaseViewModel() {
                 }
             }.invokeOnCompletion { _state.update { it.copy(isLoading = false) } }
         } catch (e: Exception) {
-            log.error("加载详情失败", e)
+            log.error("启动加载任务失败", e)
+            _state.update { it.copy(isLoading = false) }
+            SnackBar.postMsg("启动加载失败: ${e.message}", type = SnackBar.MessageType.ERROR)
         }
     }
 
@@ -265,115 +273,146 @@ class DetailViewModel : BaseViewModel() {
      * 并在搜索完成后更新快速搜索结果。若搜索到有效结果，会加载首个结果的详情；
      *
      * 若未搜索到结果，则提示用户暂无线路数据。
-     *
+     * 如果提供了 onComplete 回调，则在所有搜索任务完成后执行回调。
+     * @param onComplete 搜索完成后的回调函数，参数为搜索结果列表
      */
-    fun quickSearch() {
+    fun quickSearch(onComplete: ((List<Vod>) -> Unit)? = null) {
+        // 重置状态
+        launched = false
+        consecutiveLoadFailures = 0
+        jobList.clear()
+
         searchScope.launch {
             _state.update { it.copy(isLoading = true, isBuffering = false) }
             // 筛选出可切换的站点列表，并打乱顺序
             val quickSearchSites = ApiConfig.api.sites.filter { it.changeable == 1 }.shuffled()
-            val totalSites = quickSearchSites.size  // 获取总站点数
-            var completedCount = 0  // 已完成计数器
+            val totalSites = quickSearchSites.size
 
-            log.debug("开始执行快搜 sites:{}", quickSearchSites.map { it.name }.toString())
+            if (totalSites == 0) {
+                log.warn("没有可用的搜索站点")
+                _state.update { it.copy(isLoading = false) }
+                SnackBar.postMsg("暂无可用站点", type = SnackBar.MessageType.WARNING)
+                onComplete?.invoke(emptyList())
+                return@launch
+            }
 
-            postQuickSearchProgress(0, totalSites)  // 发送开始搜索消息
-            val semaphore = Semaphore(2)            // 创建一个信号量，限制同时执行的搜索任务数量为 2
+            log.debug("开始执行快搜 sites:{}", quickSearchSites.map { it.name })
+            postQuickSearchProgress(0, totalSites)
 
-            quickSearchSites.forEach {      // 遍历可搜索的站点列表
-                val job = launch {          // 为每个站点启动一个新的协程进行搜索
-                    semaphore.acquire()     // 获取信号量许可，若没有可用许可则挂起协程
+            val semaphore = Semaphore(2)
+            val completedCount = java.util.concurrent.atomic.AtomicInteger(0)
+            val hasLoadedDetail = java.util.concurrent.atomic.AtomicBoolean(false)
+
+            quickSearchSites.forEach { site ->
+                val job = launch {
+                    semaphore.acquire()
                     try {
-                        withTimeout(2500L) {// 设置超时时间为 2500 毫秒，在超时时间内执行搜索操作
-                            SiteViewModel.searchContent(it, getChooseVod().vodName ?: "", true)
-                            log.debug("{}完成搜索", it.name) // 记录该站点搜索完成的日志
+                        withTimeout(2500L) {
+                            SiteViewModel.searchContent(site, getChooseVod().vodName ?: "", true)
+                            log.debug("{}完成搜索", site.name)
+                        }
+                    } catch (e: TimeoutCancellationException) {
+                        log.warn("搜索站点 {} 超时", site.name)
+                    } catch (e: Exception) {
+                        log.error("搜索站点 {} 时发生异常: {}", site.name, e.message)
+                    } finally {
+                        semaphore.release()
+                    }
+                }
+
+                job.invokeOnCompletion { throwable ->
+                    val count = completedCount.incrementAndGet()
+
+                    if (throwable != null && throwable !is TimeoutCancellationException) {
+                        log.error("quickSearch 协程执行异常: {}", throwable.message)
+                    }
+
+                    // 安全地获取当前完成的站点名称
+                    val currentSiteName = quickSearchSites.getOrNull(count - 1)?.name ?: "完成"
+                    postQuickSearchProgress(count, totalSites, currentSiteName)
+
+                    // 原子性地更新搜索结果
+                    try {
+                        val searchResults = SiteViewModel.quickSearch.value
+                        if (searchResults.isNotEmpty() && searchResults[0].list.isNotEmpty()) {
+                            _state.update { state ->
+                                val existingUrls = state.quickSearchResult.map { it.vodId }.toSet()
+                                val newVods = searchResults[0].list.filter { it.vodId !in existingUrls }
+                                if (newVods.isNotEmpty()) {
+                                    val updatedList = CopyOnWriteArrayList(state.quickSearchResult)
+                                    updatedList.addAll(newVods)
+                                    state.copy(quickSearchResult = updatedList)
+                                } else {
+                                    state
+                                }
+                            }
                         }
                     } catch (e: Exception) {
-                        log.error("搜索站点 {} 时发生异常: {}", it.name, e.message)
-                    } finally {
-                        semaphore.release() // 释放信号量许可，允许其他协程获取许可
-                    }
-                }
-
-                // 为每个搜索任务添加完成回调
-                job.invokeOnCompletion { throwable ->
-                    completedCount++
-                    if (throwable != null) {
-                        // 若协程执行过程中出现异常，记录错误日志
-                        log.error("quickSearch 协程执行异常 msg:{}", throwable.message)
+                        log.error("更新搜索结果时发生异常: {}", e.message)
                     }
 
-                    // 更新进度显示，包含当前完成的站点名称
-                    val currentSiteName = if (completedCount <= quickSearchSites.size) {
-                        quickSearchSites.getOrNull(completedCount - 1)?.name ?: "未知"
-                    } else "完成"
-                    postQuickSearchProgress(completedCount, totalSites, currentSiteName)
-
-                    // 更新状态流，将搜索结果添加到快速搜索结果列表中
-                    _state.update { state ->
-                        val list = CopyOnWriteArrayList<Vod>()
-                        // 将搜索结果添加到列表中，避免重复元素
-                        list.addAllAbsent(SiteViewModel.quickSearch.value[0].list)
-                        state.copy(
-                            quickSearchResult = list,
-                        )
-                    }
-                    if (throwable == null) {
-                        // 若协程正常完成，记录完成日志并输出结果列表大小
-                        log.debug(
-                            "job执行完毕 {}/{} result size:{}",
-                            completedCount,
-                            totalSites,
-                            _state.value.quickSearchResult.size
-                        )
-                    }
-
-                    // 使用同步锁确保线程安全
-                    synchronized(lock) {
-                        try {
-                            // 检查状态是否仍然有效
-                            if (!_state.value.quickSearchResult.isEmpty() &&
+                    // 检查是否需要加载详情（使用原子操作避免竞态条件）
+                    if (throwable == null || throwable is TimeoutCancellationException) {
+                        val shouldLoad = !_state.value.quickSearchResult.isEmpty() &&
                                 _state.value.detail.isEmpty() &&
                                 !launched &&
-                                isActive
-                            ) {  // 检查协程是否仍活跃
-                                // 记录开始加载详情的日志
-                                log.info("开始加载 详情")
-                                // 标记已启动加载详情操作
-                                launched = true
-                                // 加载快速搜索结果中的第一个视频详情
-                                loadDetail(_state.value.quickSearchResult[0])
+                                isActive &&
+                                hasLoadedDetail.compareAndSet(false, true)
+
+                        if (shouldLoad) {
+                            synchronized(lock) {
+                                // 双重检查
+                                if (!_state.value.quickSearchResult.isEmpty() &&
+                                    _state.value.detail.isEmpty() &&
+                                    !launched
+                                ) {
+                                    try {
+                                        log.info("开始加载详情")
+                                        launched = true
+                                        val firstResult = _state.value.quickSearchResult.firstOrNull()
+                                        if (firstResult != null) {
+                                            loadDetail(firstResult)
+                                        } else {
+                                            launched = false
+                                            hasLoadedDetail.set(false)
+                                        }
+                                    } catch (e: Exception) {
+                                        log.error("加载详情时发生异常: {}", e.message)
+                                        launched = false
+                                        hasLoadedDetail.set(false)
+                                    }
+                                }
                             }
-                        } catch (e: Exception) {
-                            log.error("处理搜索完成时发生异常: {}", e.message)
                         }
                     }
                 }
-                // 将搜索任务添加到任务列表中
+
                 jobList.add(job)
             }
+
             // 等待所有搜索任务完成
             try {
                 jobList.joinAll()
             } catch (e: Exception) {
                 log.error("等待搜索任务完成时发生异常: {}", e.message)
+            } finally {
+                jobList.clear()
             }
-            // 若快速搜索结果为空
-            if (_state.value.quickSearchResult.isEmpty()) {
-                // 更新状态流，将详情信息设置为全局选中的视频信息
-                _state.update { it.copy(detail = GlobalAppState.chooseVod.value, isLoading = false) }
-                // 提示用户暂无线路数据
+
+            // 若快速搜索结果为空且未加载详情
+            if (_state.value.quickSearchResult.isEmpty() && _state.value.detail.isEmpty()) {
+                _state.update {
+                    it.copy(
+                        detail = GlobalAppState.chooseVod.value,
+                        isLoading = false
+                    )
+                }
                 SnackBar.postMsg("暂无线路数据", type = SnackBar.MessageType.WARNING)
             }
         }.invokeOnCompletion {
-            // 统一关闭加载指示器
             _state.update { it.copy(isLoading = false) }
-            try {
-                // 所有搜索任务完成后，更新状态流，标记搜索结束
-                _state.update { it.copy() }
-            } catch (e: Exception) {
-                log.error("搜索完成回调时发生异常: {}", e.message)
-            }
+            // 执行完成回调
+            onComplete?.invoke(_state.value.quickSearchResult)
         }
     }
 
@@ -387,57 +426,68 @@ class DetailViewModel : BaseViewModel() {
      * @param vod 要加载详情的视频对象
      */
     fun loadDetail(vod: Vod) {
-        // 记录开始加载视频详情的日志，包含视频名称、ID 和站点信息
         log.info("加载详情 <${vod.vodName}> <${vod.vodId}> site:<${vod.site}>")
         try {
             _state.update { it.copy(isLoading = true) }
-            // 获取视频对应的站点 key
             val siteKey = vod.site?.key
-            if (siteKey != null) {
-                val dt = try { // 尝试获取视频详情信息
-                    SiteViewModel.detailContent(siteKey, vod.vodId)
-                } catch (e: Exception) {
-                    log.error("获取视频详情信息时发生异常", e)
-                    null
-                }
-                if (dt == null || dt.detailIsEmpty()) {
-                    log.info("请求详情为空 加载下一个站源数据")
-                    SnackBar.postMsg("请求详情为空 加载下一个站源数据", type = SnackBar.MessageType.INFO)
-                    _state.update { it.copy(isLoading = false) }
-
-                    consecutiveLoadFailures++
-                    if (consecutiveLoadFailures >= maxConsecutiveFailures) {
-                        log.warn("连续加载失败次数达到上限")
-                        SnackBar.postMsg("连续加载失败次数达到上限，取消加载", type = SnackBar.MessageType.WARNING)
-                        return
-                    }
-                    nextSite(vod)
-                    return
-                }
-                val first = dt.list[0] // 从详情列表中取出第一个元素
-                log.info("加载详情完成 $first")
-                first.site = vod.site  // 为详情对象设置站点信息
-                if (first.isEmpty()) { // 若详情对象为空，尝试加载下一个视频
-                    _state.update { it.copy(isLoading = false) }
-                    consecutiveLoadFailures++
-                    if (consecutiveLoadFailures >= maxConsecutiveFailures) {
-                        log.warn("站点信息连续加载失败次数达到上限")
-                        SnackBar.postMsg("连续加载失败次数达到上限，取消加载", type = SnackBar.MessageType.WARNING)
-                        return
-                    }
-                    nextSite(vod)
-                } else {
-                    consecutiveLoadFailures = 0
-                    setDetail(first) // 若详情对象有效，设置详情信息
-                    log.debug("切换站源，新的站源: {}", first.site?.name)
-                    _currentFlagName.value = first.currentFlag.flag.toString()
-                    supervisor.cancelChildren()                    // 取消 supervisor 协程的所有子协程
-                    jobList.cancelAll().clear()                    // 取消 jobList 中的所有协程任务并清空列表
-                }
-            } else {
+            if (siteKey == null) {
                 log.warn("站点为空")
                 SnackBar.postMsg("站点为空", type = SnackBar.MessageType.WARNING)
+                _state.update { it.copy(isLoading = false) }
+                return
             }
+
+            val dt = try {
+                SiteViewModel.detailContent(siteKey, vod.vodId)
+            } catch (e: Exception) {
+                log.error("获取视频详情信息时发生异常: {}", e.message)
+                null
+            }
+
+            if (dt == null || dt.detailIsEmpty()) {
+                log.info("请求详情为空，加载下一个站源数据")
+                SnackBar.postMsg("请求详情为空，尝试下一个站源", type = SnackBar.MessageType.INFO)
+                _state.update { it.copy(isLoading = false) }
+
+                consecutiveLoadFailures++
+                if (consecutiveLoadFailures >= maxConsecutiveFailures) {
+                    log.warn("连续加载失败次数达到上限")
+                    SnackBar.postMsg("连续加载失败次数达到上限，取消加载", type = SnackBar.MessageType.WARNING)
+                    return
+                }
+                nextSite(vod)
+                return
+            }
+
+            val first = dt.list.firstOrNull()
+            if (first == null || first.isEmpty()) {
+                log.warn("详情对象为空，尝试下一个站源")
+                _state.update { it.copy(isLoading = false) }
+                consecutiveLoadFailures++
+                if (consecutiveLoadFailures >= maxConsecutiveFailures) {
+                    log.warn("站点信息连续加载失败次数达到上限")
+                    SnackBar.postMsg("连续加载失败次数达到上限，取消加载", type = SnackBar.MessageType.WARNING)
+                    return
+                }
+                nextSite(vod)
+                return
+            }
+
+            // 成功加载详情
+            consecutiveLoadFailures = 0
+            first.site = vod.site
+            setDetail(first)
+            log.debug("切换站源，新的站源: {}", first.site?.name)
+            _currentFlagName.value = first.currentFlag.flag.toString()
+
+            // 取消剩余的搜索任务
+            supervisor.cancelChildren()
+            jobList.forEach { it.cancel("detail loaded") }
+            jobList.clear()
+
+        } catch (e: Exception) {
+            log.error("加载详情时发生未预期异常: {}", e.message, e)
+            _state.update { it.copy(isLoading = false) }
         } finally {
             launched = false
         }
@@ -1301,7 +1351,7 @@ class DetailViewModel : BaseViewModel() {
      *
      * 若下一个线路为空，提示用户没有更多线路；
      *
-     * 若下一个线路有效但为空，清空视频 ID 并执行快速搜索。
+     * 若下一个线路有效但为空，清空视频 ID 并执行快速搜索，等待搜索完成后根据结果决定是否继续换源。
      */
     fun nextFlag() {
         _state.update { it.copy(isLoading = true, isBuffering = false) }
@@ -1332,11 +1382,32 @@ class DetailViewModel : BaseViewModel() {
 
         // 如果当前播放线路为空
         if (detail.currentFlag.isEmpty()) {
+            log.info("当前线路为空，需要执行快速搜索寻找可用站源")
             // 清空视频 ID，以便快速搜索时重新加载详情
             detail.vodId = ""
-            // 执行快速搜索操作
-            quickSearch()
-            // 结束当前方法
+            // 执行快速搜索，并在完成后处理结果
+            quickSearch { results ->
+                scope.launch {
+                    if (results.isNotEmpty() && !results.all { it.vodId.isBlank() }) {
+                        log.info("快速搜索完成，找到 {} 个结果，准备加载详情", results.size)
+                        SnackBar.postMsg(
+                            "找到 ${results.size} 个可用站源，正在加载...",
+                            type = SnackBar.MessageType.INFO
+                        )
+                        loadDetail(results.first())
+                    } else {
+                        log.warn("快速搜索完成但未找到有效结果，取消自动换源")
+                        _state.update {
+                            it.copy(
+                                detail = detail,
+                                isLoading = false,
+                                isBuffering = false
+                            )
+                        }
+                        SnackBar.postMsg("未找到可用站源，自动换源已取消", type = SnackBar.MessageType.WARNING)
+                    }
+                }
+            }
             return
         }
 
@@ -1351,14 +1422,23 @@ class DetailViewModel : BaseViewModel() {
         // 提示用户已切换至新的播放线路
         SnackBar.postMsg("切换至线路[${detail.currentFlag.flag}]", type = SnackBar.MessageType.INFO)
         // 根据控制器的历史记录查找对应的剧集
-        val findEp = detail.findAndSetEpByName(controller.history.value!!, currentEpisodeIndex)
+        val history = controller.history.value
+        val findEp = if (history != null) {
+            detail.findAndSetEpByName(history, currentEpisodeIndex)
+        } else {
+            log.warn("自动切换线路时历史记录为空，使用第一个剧集")
+            null
+        }
         // 调用 playEp 方法播放找到的剧集，若未找到则播放子剧集列表中的第一个剧集
         scope.launch {
             delay(500)
-            startPlay(detail, findEp ?: detail.subEpisode.first())//自动切换线路并播放
+            startPlay(detail, findEp ?: detail.subEpisode.firstOrNull() ?: run {
+                log.error("切换线路后无可用剧集")
+                SnackBar.postMsg("切换线路失败：无可用剧集", type = SnackBar.MessageType.ERROR)
+                return@launch
+            })//自动切换线路并播放
         }
     }
-
 
     /**
      * 同步视频播放的历史记录。
@@ -1745,7 +1825,9 @@ class DetailViewModel : BaseViewModel() {
             } else {
                 val correctDetailForPlay = _state.value.detail // 获取包含正确 activated 状态的最新 detail
 
-                if (lifecycleManager.lifecycleState.value == Playing) { // 如果播放器正在播放，结束播放
+                if (vmPlayerType.first() == PlayerType.Innie.id &&
+                    lifecycleManager.lifecycleState.value == Playing
+                ) { // 如果内置播放器正在播放，结束播放
                     log.debug("切换选集,结束播放,当前播放器状态: {}", lifecycleManager.lifecycleState.value)
                     lifecycleManager.transitionTo(Ended) {
                         lifecycleManager.ended()

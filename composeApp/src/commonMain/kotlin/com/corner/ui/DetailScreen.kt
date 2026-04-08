@@ -687,8 +687,13 @@ private fun quickSearchResult(
                 items(searchResultList.value) {
                     QuickSearchItem(it) {
                         SiteViewModel.viewModelScope.launch {
-                            log.debug("开始加载新内容...")
-                            component.loadDetail(it)
+                            try {
+                                log.debug("开始加载新内容...")
+                                component.loadDetail(it)
+                            } catch (e: Exception) {
+                                log.error("加载详情失败: {}", e.message, e)
+                                SnackBar.postMsg("加载失败: ${e.message}", type = SnackBar.MessageType.ERROR)
+                            }
                         }
                     }
                 }

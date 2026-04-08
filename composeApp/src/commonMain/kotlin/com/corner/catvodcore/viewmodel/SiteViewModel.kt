@@ -144,7 +144,7 @@ object SiteViewModel {
                 detail.value = rst
             }
         } catch (e: Exception) {
-            log.error("${site.name} detailContent 异常", e)
+            log.debug("${site.name} 后端错误（已忽略）: {}", e.message)
             return null
         }
         rst.list.forEach { it.site = site }
@@ -260,7 +260,7 @@ object SiteViewModel {
             }
             _state.update { it.copy(isSpecialVideoLink = true) }
             return // 特殊链接无需后续M3U8处理
-        }else{
+        } else {
             log.debug("未发现特殊链接:{}", urlStr)
         }
 

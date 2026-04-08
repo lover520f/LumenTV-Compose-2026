@@ -169,8 +169,8 @@ fun main() {
 
 private fun launchErrorCatcher() {
     Thread.setDefaultUncaughtExceptionHandler { _, e ->
-        SnackBar.postMsg("未知异常， 请查看日志", type = SnackBar.MessageType.ERROR)
+        SnackBar.postMsg("未知异常,请检查日志", type = SnackBar.MessageType.ERROR)
         log.error("未知异常", e)
-        Init.stop()
+//        Init.stop()
     }
 }
