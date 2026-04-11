@@ -1,7 +1,9 @@
 package com.corner.util.net
 
-import com.corner.catvodcore.bean.Site
-import com.corner.util.core.Constants
+/**
+ * 通用http客户端
+ * */
+
 import com.github.catvod.bean.Doh
 import org.slf4j.LoggerFactory
 import kotlinx.serialization.json.Json
@@ -86,7 +88,9 @@ class Http {
                     .connectTimeout(10, TimeUnit.SECONDS)
                     .readTimeout(10, TimeUnit.SECONDS)
                     .writeTimeout(10, TimeUnit.SECONDS)
-                    .proxy(com.corner.util.network.KtorClient.getProxy())
+                    // 重要：不要直接设置 .proxy()，让 ProxySelector 决定是否需要代理
+                    // ProxySelector 会自动排除本地地址（127.0.0.1, localhost 等）
+                    // 注意：ProxySelect 会在初始化时从 ProxyManager 获取代理配置
                     .followRedirects(true)
                     .sslSocketFactory(getSSLSocketFactory(), getX509TrustManager()!!)
                     .hostnameVerifier(getHostnameVerifier())

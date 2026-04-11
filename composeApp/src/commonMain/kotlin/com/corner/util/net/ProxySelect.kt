@@ -81,13 +81,15 @@ class ProxySelect : ProxySelector() {
             })
         }
         
-        // 关键修复：实际设置proxy对象
-        val type = when (httpUrl.scheme.lowercase()) {
-            "socks", "socks5" -> Proxy.Type.SOCKS
-            else -> Proxy.Type.HTTP
-        }
+        // 从 ProxyManager 获取代理配置（统一状态管理）
+        // ProxyManager 会测试代理可用性，如果不可用则返回 NO_PROXY
+        val proxy = ProxyManager.getProxy()
+        this.proxy = if (proxy != Proxy.NO_PROXY) proxy else null
         
-        this.proxy = Proxy(type, InetSocketAddress(httpUrl.host, httpUrl.port))
-        log.info("Proxy configured: type={}, host={}, port={}", type, httpUrl.host, httpUrl.port)
+        log.info("Proxy configured from ProxyManager: type={}, host={}, port={}", 
+            proxy.type(), 
+            (proxy.address() as? InetSocketAddress)?.hostName ?: "N/A",
+            (proxy.address() as? InetSocketAddress)?.port ?: -1
+        )
     }
 }

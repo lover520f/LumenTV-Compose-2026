@@ -22,6 +22,7 @@ import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.ListAlt
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.ContentPaste
@@ -91,6 +92,7 @@ import com.corner.util.net.Http
 import com.corner.catvodcore.viewmodel.GlobalAppState
 import com.corner.util.m3u8.M3U8FilterConfig
 import com.github.catvod.bean.Doh
+import kotlinx.coroutines.withContext
 import lumentv_compose.composeapp.generated.resources.LumenTV_icon_svg
 import org.slf4j.LoggerFactory
 import kotlin.math.roundToInt
@@ -869,9 +871,22 @@ fun WindowScope.SettingScene(vm: SettingViewModel, config: M3U8FilterConfig, onC
                     ) {
                         Switch(
                             checked = proxySetting.value.isEnabled,
-                            onCheckedChange = {
-                                SettingStore.setValue(SettingType.PROXY, "$it#${proxySetting.value.value}")
+                            onCheckedChange = { enabled ->
+                                // 更新设置
+                                SettingStore.setValue(SettingType.PROXY, "$enabled#${proxySetting.value.value}")
                                 vm.sync()
+                                
+                                // 清除代理测试缓存，下次请求时会重新测试（使用统一的 ProxyManager）
+                                com.corner.util.net.ProxyManager.clearCache()
+                                
+                                // 如果关闭代理，立即清除OkHttpClient缓存以生效
+                                if (!enabled) {
+                                    com.corner.util.net.Http.client().dispatcher.executorService.shutdownNow()
+                                    com.github.catvod.net.OkHttp.clearClient()
+                                    SnackBar.postMsg("代理已关闭，网络连接将立即生效", type = SnackBar.MessageType.INFO)
+                                } else {
+                                    SnackBar.postMsg("代理已开启，部分功能可能需要重启后完全生效", type = SnackBar.MessageType.INFO)
+                                }
                             },
                             colors = SwitchDefaults.colors(
                                 checkedThumbColor = MaterialTheme.colorScheme.primary,
@@ -884,13 +899,32 @@ fun WindowScope.SettingScene(vm: SettingViewModel, config: M3U8FilterConfig, onC
                             onValueChange = {
                                 SettingStore.setValue(SettingType.PROXY, "${proxySetting.value.isEnabled}#$it")
                                 vm.sync()
+                                // 清除代理测试缓存，下次请求时会重新测试（使用统一的 ProxyManager）
+                                com.corner.util.net.ProxyManager.clearCache()
                             },
                             label = { Text("代理地址") },
+                            placeholder = { Text("例如: http://127.0.0.1:7890") },
                             maxLines = 1,
                             modifier = Modifier.weight(1f),
                             enabled = proxySetting.value.isEnabled,
                             shape = RoundedCornerShape(12.dp)
                         )
+                        
+                        // 测试代理按钮
+                        if (proxySetting.value.isEnabled && proxySetting.value.value.isNotBlank()) {
+                            IconButton(
+                                onClick = {
+                                    testProxyConnection(proxySetting.value.value)
+                                },
+                                modifier = Modifier.size(40.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = "测试代理",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -1293,6 +1327,35 @@ fun setConfig(textFieldValue: String?) {
         initConfig(true)
     }.invokeOnCompletion {
         hideProgress()
+    }
+}
+
+/**
+ * 测试代理连接
+ */
+private fun testProxyConnection(proxyUrl: String) {
+    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+        try {
+            val uri = java.net.URI.create(proxyUrl)
+            val address = java.net.InetSocketAddress(uri.host, uri.port)
+            val socket = java.net.Socket()
+            
+            SnackBar.postMsg("正在测试代理连接...", type = SnackBar.MessageType.INFO)
+            
+            // 设置超时时间为3秒
+            socket.connect(address, 3000)
+            socket.close()
+            
+            SnackBar.postMsg(
+                "代理连接测试成功！\n地址: $proxyUrl",
+                type = SnackBar.MessageType.SUCCESS
+            )
+        } catch (e: Exception) {
+            SnackBar.postMsg(
+                "代理连接测试失败！\n地址: $proxyUrl\n错误: ${e.message}\n\n请检查：\n1. 代理服务器是否启动\n2. 代理地址是否正确\n3. 防火墙是否阻止连接",
+                type = SnackBar.MessageType.ERROR
+            )
+        }
     }
 }
 

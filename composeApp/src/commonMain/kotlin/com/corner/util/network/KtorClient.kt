@@ -1,8 +1,9 @@
 package com.corner.util.network
 
-import com.corner.bean.SettingStore
-import com.corner.bean.SettingType
-import com.corner.bean.parseAsSettingEnable
+/**
+ *  Ktor Client Http客户端
+ * */
+
 import com.github.catvod.crawler.Spider.Companion.safeDns
 import com.github.catvod.net.OkhttpInterceptor
 import io.ktor.client.*
@@ -10,9 +11,7 @@ import io.ktor.client.engine.okhttp.*
 import io.ktor.client.plugins.*
 import okhttp3.Dispatcher
 import org.slf4j.LoggerFactory
-import java.net.InetSocketAddress
 import java.net.Proxy
-import java.net.URI
 import java.util.concurrent.TimeUnit
 
 class KtorClient {
@@ -67,40 +66,18 @@ class KtorClient {
             block()
         }
 
+        /**
+         * 获取代理配置（委托给全局 ProxyManager）
+         */
         fun getProxy(): Proxy {
-            val settingEnable = SettingStore.getSettingItem(SettingType.PROXY).parseAsSettingEnable()
-            
-            // 优先级1: 用户手动配置的代理
-            if (settingEnable.isEnabled && settingEnable.value.isNotBlank()) {
-                return parseProxyFromUrl(settingEnable.value)
-            }
-            
-            // 优先级2: 自动检测系统代理
-            log.debug("No manual proxy configured, attempting to detect system proxy...")
-            val systemProxy = com.corner.util.net.SystemProxyDetector.detectSystemProxy()
-            if (systemProxy != null) {
-                return systemProxy
-            }
-            
-            log.debug("No proxy configured, using direct connection")
-            return Proxy.NO_PROXY
+            return com.corner.util.net.ProxyManager.getProxy()
         }
         
         /**
-         * 从URL字符串解析代理配置
+         * 清除代理测试缓存（当用户修改代理配置时调用）
          */
-        private fun parseProxyFromUrl(proxyUrl: String): Proxy {
-            return try {
-                val uri = URI.create(proxyUrl)
-                val type = when (uri.scheme?.lowercase()) {
-                    "socks", "socks5" -> Proxy.Type.SOCKS
-                    else -> Proxy.Type.HTTP
-                }
-                Proxy(type, InetSocketAddress(uri.host, uri.port))
-            } catch (e: Exception) {
-                log.error("解析代理URL失败: $proxyUrl", e)
-                Proxy.NO_PROXY
-            }
+        fun clearProxyCache() {
+            com.corner.util.net.ProxyManager.clearCache()
         }
     }
 }

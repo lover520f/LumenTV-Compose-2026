@@ -34,6 +34,12 @@ data class Hot(val data: List<HotData>) {
                             ).data
                         }
                     }
+                } catch (e: java.net.ConnectException) {
+                    log.error("请求热搜失败：网络连接错误", e)
+                    com.corner.ui.scene.SnackBar.postMsg(
+                        "热搜加载失败：无法连接到网络\n请检查代理设置或网络连接",
+                        type = com.corner.ui.scene.SnackBar.MessageType.WARNING
+                    )
                 } catch (e: Exception) {
                     log.error("请求热搜失败", e)
                 }

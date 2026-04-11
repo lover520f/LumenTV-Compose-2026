@@ -104,12 +104,14 @@
 - [X] WebPlayer
 - [X] 明/暗色主题实现
 - [X] 支持广告过滤
-- [ ] 自更新
+- [X] 自更新
 - [ ] 下载 aria2
 
 ## 截图
 ### 首页
 ![](readme_images/home.png)
+### 站源选择
+![](readme_images/source.png)
 ### 历史记录
 ![](readme_images/history.png)
 ### 搜索
@@ -124,10 +126,16 @@
 ### Web播放器
 ![](readme_images/M3U8Player.png)
 ### 设置页
-![](readme_images/settings.png)
+![](readme_images/settings_1.png)
+![](readme_images/settings_2.png)
+![](readme_images/settings_3.png)
+![](readme_images/settings_4.png)
+## 关于页
+![](readme_images/about.png)
 
 ---
 ## 引用
 - player: https://github.com/numq/jetpack-compose-desktop-media-player
 - animeko: https://github.com/open-ani/animeko?tab=readme-ov-file
 - 广告过滤脚本: https://github.com/ltxlong/M3U8-Filter-Ad-Script
+- FPS监控: https://github.com/succlz123/AcFun-Client-Multiplatform
