@@ -23,6 +23,8 @@ kotlin {
 
     sourceSets {
         commonMain {
+            kotlin.srcDir("build/generated/ksp/metadata/commonMain/kotlin")
+            
             dependencies {
                 implementation(compose.runtime)
                 implementation(compose.foundation)
@@ -111,6 +113,46 @@ kotlin {
                 // Player
                 implementation(libs.vlcj)
             }
+        }
+    }
+}
+
+// 生成版本号常量
+tasks.register("generateVersionConstants") {
+    val version = libs.versions.app.version.get()
+    val outputDir = layout.buildDirectory.dir("generated/version").get().asFile
+    val outputFile = File(outputDir, "AppVersion.kt")
+    
+    doLast {
+        outputDir.mkdirs()
+        outputFile.writeText(
+            """
+            package com.corner.util
+            
+            /**
+             * 应用版本号（从 gradle/libs.versions.toml 自动生成）
+             * 不要手动修改此文件！
+             */
+            object AppVersion {
+                const val VERSION = "$version"
+                const val VERSION_NAME = "$version"
+                const val VERSION_CODE = ${version.replace(".", "")}
+            }
+            """.trimIndent()
+        )
+        println("Generated AppVersion.kt with version: $version")
+    }
+}
+
+// 确保在编译前生成版本号
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+    dependsOn("generateVersionConstants")
+}
+
+kotlin {
+    sourceSets {
+        commonMain {
+            kotlin.srcDir(layout.buildDirectory.dir("generated/version"))
         }
     }
 }

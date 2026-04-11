@@ -26,7 +26,6 @@ import uk.co.caprica.vlcj.player.base.MediaPlayer
 import uk.co.caprica.vlcj.player.base.MediaPlayerEventAdapter
 import uk.co.caprica.vlcj.player.base.State
 import uk.co.caprica.vlcj.player.embedded.EmbeddedMediaPlayer
-import java.io.File
 import kotlin.time.Duration
 import kotlin.time.DurationUnit
 
@@ -58,10 +57,6 @@ class VlcjController(val vm: DetailViewModel) : PlayerController {
     private var playerRealStartTime: Long = 0   // 记录实际开始播放的时间
     private var playerEndTime: Long = 0
     private val decodeFailureTureShould = 5000L  // 5秒阈值
-
-    companion object {
-        private var pluginCacheChecked = false  // 插件缓存检查
-    }
 
     private val vlcjArgs = mutableListOf(
         "-q",                                   // 最低级别日志
@@ -285,36 +280,6 @@ class VlcjController(val vm: DetailViewModel) : PlayerController {
 
     override fun init() {
         isCleaned = false
-        // 仅在第一次初始化时检查插件缓存
-        if (!pluginCacheChecked) {
-            // 添加插件缓存检查和重建逻辑
-            val vlcDir = File("vlcdir")
-            val pluginsDir = File(vlcDir, "plugins")
-            val pluginCacheFile = File(pluginsDir, "plugins.dat")
-
-            // 添加缓存检查日志
-            log.info("[VLC Cache Check] 插件缓存路径: ${pluginCacheFile.absolutePath}")
-            log.info("[VLC Cache Check] 缓存文件存在: ${pluginCacheFile.exists()}")
-
-            // 检查缓存是否存在或需要重置
-            if (!pluginCacheFile.exists()) {
-                log.warn("[VLC Cache Check] 缓存文件不存在，添加 --reset-plugins-cache 参数")
-                vlcjArgs.add("--reset-plugins-cache")
-                // 确保插件目录存在
-                if (pluginsDir.mkdirs()) {
-                    log.info("[VLC Cache Check] 插件目录已创建: ${pluginsDir.absolutePath}")
-                } else {
-                    log.warn("[VLC Cache Check] 插件目录已存在或创建失败: ${pluginsDir.absolutePath}")
-                }
-            } else {
-                log.info("[VLC Cache Check] 缓存文件存在，无需重建")
-            }
-
-            // 标记已检查过插件缓存
-            pluginCacheChecked = true
-        } else {
-            log.info("[VLC Cache Check] 插件缓存已检查过，跳过")
-        }
 
         try {
             factory = MediaPlayerFactory(vlcjArgs)

@@ -1,5 +1,6 @@
 package com.corner.util.update
 
+import com.corner.util.AppVersion
 import com.corner.util.io.Paths
 import com.corner.util.OperatingSystem
 import com.corner.util.UserDataDirProvider
@@ -211,10 +212,11 @@ class UpdateLauncher {
                 val json = Json.decodeFromString<JsonObject>(response.bodyAsText())
                 val tagName = json["tag_name"]?.jsonPrimitive?.content
                 client.close()
-                tagName ?: "v1.1.3" // fallback版本
+                // fallback 到当前版本号（从统一配置读取）
+                tagName ?: "v${AppVersion.VERSION}"
             } catch (e: Exception) {
                 log.warn("Failed to fetch latest version, using fallback", e)
-                "v1.1.3"
+                "v${AppVersion.VERSION}"
             }
         }
 

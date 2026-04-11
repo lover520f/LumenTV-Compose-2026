@@ -67,6 +67,7 @@ import com.corner.bean.*
 import com.corner.bean.enums.PlayerType
 import com.corner.catvodcore.config.ApiConfig
 import com.corner.catvodcore.enum.ConfigType
+import com.corner.util.AppVersion
 import com.corner.util.io.Paths
 import com.corner.catvodcore.viewmodel.GlobalAppState.hideProgress
 import com.corner.catvodcore.viewmodel.GlobalAppState.showProgress
@@ -1418,7 +1419,7 @@ fun AboutDialog(
                         )
 
                         Text(
-                            text = "1.1.5",
+                            text = AppVersion.VERSION_NAME,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                         )
