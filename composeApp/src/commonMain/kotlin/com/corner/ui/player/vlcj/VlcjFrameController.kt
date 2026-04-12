@@ -27,12 +27,14 @@ import kotlin.math.max
  * - 协调 VlcjController 和 VlcjFrameRenderer
  * - 管理历史记录收集
  * - 提供便捷的加载和释放方法
+ * 
+ * 实现 AutoCloseable 接口，确保资源能够被正确清理
  */
 class VlcjFrameController(
     component: DetailViewModel,
     private val controller: VlcjController = VlcjController(component),
     private val bitmapPool: BitmapPool = BitmapPool(3)
-) : FrameRenderer, PlayerController by controller {
+) : FrameRenderer, PlayerController by controller, AutoCloseable {
     private val log = thisLogger()
     
     // 委托给独立的帧渲染器
@@ -145,6 +147,14 @@ class VlcjFrameController(
         return controller.player
     }
 
+    /**
+     * 关闭控制器，释放所有资源
+     * 实现 AutoCloseable 接口，支持 use 块自动清理
+     */
+    override fun close() {
+        release()
+    }
+    
     fun release() {
         if (isReleased) {
             log.debug("播放器已释放，跳过重复释放")
@@ -158,8 +168,11 @@ class VlcjFrameController(
             try {
                 log.debug("=====开始释放播放器资源=====")
                     
-                // 释放帧渲染器资源
+                // 先释放帧渲染器资源
                 frameRenderer.release()
+                    
+                // 关闭 BitmapPool
+                bitmapPool.close()
                     
                 // 1. 检查播放器是否存在
                 val player = controller.player
@@ -176,7 +189,7 @@ class VlcjFrameController(
                     log.warn("停止播放器时出错：", e)
                 }
     
-                // 3. 延迟确俜VLC内部清理
+                // 3. 延迟确保VLC内部清理
                 Thread.sleep(100)
     
                 // 4. 安全释放

@@ -29,10 +29,11 @@ import kotlin.math.roundToInt
  * - 提供 Compose ImageBitmap 状态
  * 
  * 遵循单一职责原则（SRP），只负责帧渲染相关逻辑
+ * 实现 AutoCloseable 接口，确保资源能够被正确清理
  */
 class VlcjFrameRenderer(
     private val bitmapPool: BitmapPool = BitmapPool(3)
-) {
+) : AutoCloseable {
     private val log = thisLogger()
     
     // 帧数据
@@ -205,6 +206,14 @@ class VlcjFrameRenderer(
             
             log.debug("帧渲染器资源已清理")
         }
+    }
+    
+    /**
+     * 释放渲染器所有资源
+     * 实现 AutoCloseable 接口，支持 use 块自动清理
+     */
+    override fun close() {
+        release()
     }
     
     /**
