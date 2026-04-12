@@ -1447,7 +1447,6 @@ class DetailViewModel : BaseViewModel() {
         return scope.async<Unit> {
             try {
                 withTimeout(PlayerStrategyConfig.DETAIL_HISTORY_QUERY_TIMEOUT_MS) {
-                    // Phase 4: 统一使用 ended()，不再区分同步/异步
                     lifecycleManager.ended()
                 }
             } catch (e: TimeoutCancellationException) {

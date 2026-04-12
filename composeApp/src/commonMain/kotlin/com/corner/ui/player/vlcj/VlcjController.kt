@@ -27,6 +27,7 @@ import uk.co.caprica.vlcj.player.base.MediaPlayer
 import uk.co.caprica.vlcj.player.base.MediaPlayerEventAdapter
 import uk.co.caprica.vlcj.player.base.State
 import uk.co.caprica.vlcj.player.embedded.EmbeddedMediaPlayer
+import kotlin.math.max
 import kotlin.time.Duration
 import kotlin.time.DurationUnit
 
@@ -153,6 +154,12 @@ class VlcjController(val vm: DetailViewModel) : PlayerController {
             }
             _state.update { it.copy(state = PlayState.PLAY) }
             log.debug("playing - 媒体开始播放")
+            
+            // Phase 6: 在播放开始时异步处理片头跳转（避免卡死）
+            scope.launch {
+                delay(300) // 等待 VLC 稳定播放
+                handleOpeningSeek()
+            }
         }
 
         override fun paused(mediaPlayer: MediaPlayer) {
@@ -394,6 +401,38 @@ class VlcjController(val vm: DetailViewModel) : PlayerController {
 
 
     private val stateList = listOf(State.ENDED, State.ERROR)
+    
+    /**
+     * 处理片头跳转（在 playing 回调中调用）
+     */
+    private fun handleOpeningSeek() {
+        try {
+            val position = history.value?.position ?: 0L
+            val opening = _state.value.opening
+            
+            // 只有当 opening 有效且大于当前时间时才跳转
+            if (opening != null && opening != -1L && opening > 0) {
+                val seekPosition = max(position, opening)
+                val currentTime = player?.status()?.time() ?: 0L
+                
+                log.debug("handleOpeningSeek - position=$position, opening=$opening, seekPosition=$seekPosition, currentTime=$currentTime")
+                
+                // 如果当前位置小于片头位置，才执行跳转
+                if (currentTime < seekPosition) {
+                    log.info("跳转到片头位置: $seekPosition ms")
+                    player?.controls()?.setTime(seekPosition)
+                    _state.update { it.copy(timestamp = seekPosition) }
+                } else {
+                    log.debug("当前位置已跳过片头，无需跳转")
+                }
+            } else {
+                log.debug("未设置片头标记或片头标记无效")
+            }
+        } catch (e: Exception) {
+            log.error("处理片头跳转失败", e)
+        }
+    }
+    
     override fun play() {
         catch {
             showTips("播放")
