@@ -1,6 +1,7 @@
 package com.corner.util.play
 
 import com.corner.ui.nav.vm.DetailViewModel
+import com.corner.util.play.BrowserUtils.detailViewModel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import org.java_websocket.server.WebSocketServer
@@ -38,7 +39,6 @@ object BrowserUtils {
     // CoroutineScope 实例
     val scope = CoroutineScope(Dispatchers.Default)
 
-    // 使用可空类型而不是lateinit，避免未初始化异常
     var detailViewModel: DetailViewModel? = null
 
     // 初始化
@@ -241,6 +241,7 @@ object VideoEventServer : WebSocketServer(InetSocketAddress("127.0.0.1", 8888)) 
             "PLAYBACK_FINISHED" -> {
                 log.info("视频播放完成！")
                 // 使用自定义的 CoroutineScope 实例启动协程
+                detailViewModel?.state?.value?.let { if (it.isDLNA) return }
                 BrowserUtils.scope.launch {
                     _webPlaybackFinishedFlow.emit(Unit)
                 }

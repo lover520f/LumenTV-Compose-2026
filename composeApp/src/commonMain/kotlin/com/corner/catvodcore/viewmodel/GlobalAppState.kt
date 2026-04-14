@@ -70,6 +70,11 @@ object GlobalAppState {
     val DLNAUrl = MutableStateFlow("")
 
     /**
+     * DLNA投屏停止回调
+     */
+    var onDLNAStop: (() -> Unit)? = null
+
+    /**
      * 根协程Job
      */
     private val rootJob = Job()

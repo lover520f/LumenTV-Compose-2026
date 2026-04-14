@@ -146,14 +146,17 @@ class DetailViewModel : BaseViewModel() {
                     lifecycleManager.stop()
                     lifecycleManager.ended()
                 }
+
                 Loading, Ready, Paused, Ended, Error -> {
                     lifecycleManager.ended()
                 }
+
                 Initialized -> {
                     // Initialized 状态需要先经过 Loading 才能到 Ended
                     lifecycleManager.loading()
                     lifecycleManager.ended()
                 }
+
                 else -> {
                     // 其他未知状态，尝试 ended
                     lifecycleManager.ended()
@@ -816,6 +819,7 @@ class DetailViewModel : BaseViewModel() {
             )
         }
     }
+
     /**
      * 准备播放：确保播放器处于Ready状态
      */
@@ -827,6 +831,7 @@ class DetailViewModel : BaseViewModel() {
                 playInitPlayer(result)
                 return
             }
+
             Playing -> transitionFromPlayingToReady()
             Loading, Ended -> lifecycleManager.ready().isSuccess
             Error -> recoverFromErrorState()
@@ -887,14 +892,16 @@ class DetailViewModel : BaseViewModel() {
         return when (currentState) {
             Initialized -> {
                 lifecycleManager.loading().isSuccess &&
-                lifecycleManager.ready().isSuccess
+                        lifecycleManager.ready().isSuccess
             }
+
             else -> {
                 lifecycleManager.ended().isSuccess &&
-                lifecycleManager.ready().isSuccess
+                        lifecycleManager.ready().isSuccess
             }
         }
     }
+
     /**
      * 初始化播放器并加载视频
      */
@@ -1020,7 +1027,7 @@ class DetailViewModel : BaseViewModel() {
             lifecycleManager = lifecycleManager,
             viewModelScope = scope
         )
-        
+
         log.debug("使用播放器策略: {}", strategy.getStrategyName())
 
         scope.launch {
@@ -1043,6 +1050,7 @@ class DetailViewModel : BaseViewModel() {
             }
         }
     }
+
     /**
      * 检测特殊视频链接（下载链接或特殊链接）
      */
@@ -1547,7 +1555,7 @@ class DetailViewModel : BaseViewModel() {
             lifecycleManager = lifecycleManager,
             viewModelScope = scope
         )
-        
+
         log.debug("使用播放器策略: {}", strategy.getStrategyName())
 
         // 创建临时Result对象
@@ -1656,67 +1664,99 @@ class DetailViewModel : BaseViewModel() {
         _state.update { it.copy(isLoading = true) }
         log.debug("<DLNA> 开始播放")
 
-        // 对于外部播放器，直接使用Play.start
-        if (vmPlayerType.first() == PlayerType.Outie.id) {
-            Play.start(string, "LumenTV-DLNA")
-            _state.update { it.copy(isLoading = false) }
-            return
+        // 如果已经在投屏中，先结束当前投屏
+        if (_state.value.isDLNA) {
+            log.debug("<DLNA> 检测到正在投屏，先结束当前投屏")
+            endDLNASession()
         }
+
+        // 创建临时Episode和Result对象用于策略模式
+        val tempEpisode = Episode.create("LumenTV-DLNA", string)
+        val tempResult = Result().apply {
+            url = com.corner.catvodcore.bean.Url().apply { add(string) }
+        }
+
+        // 对于外部播放器和Web播放器，直接使用对应的启动方式
+        when (vmPlayerType.first()) {
+            PlayerType.Outie.id, PlayerType.Web.id -> {
+                val strategy = PlayerStrategyFactory.createStrategy(
+                    playerType = vmPlayerType.first(),
+                )
+                scope.launch {
+                    strategy.play(
+                        result = tempResult,
+                        episode = tempEpisode,
+                        onPlayStarted = {
+                            _state.update {
+                                it.copy(currentPlayUrl = string, isDLNA = true, isLoading = false)
+                            }
+                        },
+                        onError = { error ->
+                            handleError(error)
+                            _state.update {
+                                it.copy(isLoading = false)
+                            }
+                        }
+                    )
+                }
+                return
+            }
+        }
+
+        // 内部播放器：使用InniePlayerStrategy
+        val strategy = PlayerStrategyFactory.createStrategy(
+            playerType = PlayerType.Innie.id,
+            controller = controller,
+            lifecycleManager = lifecycleManager,
+            viewModelScope = scope
+        )
+
+        log.debug("<DLNA> 使用播放器策略: {}", strategy.getStrategyName())
 
         scope.launch {
-            playerStateLock.withLock {
-                handlePlaybackByState(string)
+            try {
+                strategy.play(
+                    result = tempResult,
+                    episode = tempEpisode,
+                    onPlayStarted = {
+                        _state.update {
+                            it.copy(currentPlayUrl = string, isDLNA = true, isLoading = false)
+                        }
+                    },
+                    onError = { error ->
+                        handleError(error)
+                        _state.update { it.copy(isLoading = false, isDLNA = false) }
+                    }
+                )
+            } catch (e: Exception) {
+                handleError("DLNA播放执行失败: ${e.message}", e)
+                _state.update { it.copy(isLoading = false, isDLNA = false) }
             }
-        }.invokeOnCompletion { _state.update { it.copy(isLoading = false) } }
-    }
-
-    private suspend fun handlePlaybackByState(url: String) {
-        when (lifecycleManager.lifecycleState.value) {
-            Idle -> handleIdleState(url)
-            Playing -> handlePlayingState(url)
-            else -> proceedToPlay(url)
-        }
-    }
-
-    private suspend fun handleIdleState(url: String) {
-        log.debug("播放器未初始化，开始初始化...")
-        lifecycleManager.initializeSync().onSuccess {
-            proceedToPlay(url)
-        }
-    }
-
-    private suspend fun handlePlayingState(url: String) {
-        log.warn("播放器正在播放，先停止当前播放")
-        lifecycleManager.stop().onSuccess {
-            proceedToPlay(url)
         }
     }
 
     /**
-     * DLNA —— 状态检查，并更新URL
+     * 结束DLNA投屏会话
+     * 仅对内部播放器需要释放资源
      */
-    private suspend fun proceedToPlay(url: String) {
-        if (lifecycleManager.canTransitionTo(Loading)) {
-            lifecycleManager.loading()
-        }
-
-        if (lifecycleManager.canTransitionTo(Ready)) {
-            lifecycleManager.ready()
-        }
-
-        if (shouldSkipPlayback(url)) {
-            log.debug("已经在播放相同URL，跳过")
-            return
-        }
-
-        lifecycleManager.start().onSuccess {
-            _state.update {
-                it.copy(currentPlayUrl = url, isDLNA = true)
+    fun endDLNASession() {
+        if (vmPlayerType.first() == PlayerType.Innie.id) {
+            log.debug("<DLNA> 结束投屏，释放内部播放器资源")
+            scope.launch {
+                try {
+                    // 停止播放并释放资源
+                    if (lifecycleManager.canTransitionTo(Ended)) {
+                        lifecycleManager.ended()
+                    }
+                    // 重置投屏状态
+                    _state.update { it.copy(isDLNA = false, currentPlayUrl = "") }
+                } catch (e: Exception) {
+                    log.error("<DLNA> 结束投屏失败", e)
+                }
             }
+        } else {
+            // 外部播放器和Web播放器只需重置状态
+            _state.update { it.copy(isDLNA = false, currentPlayUrl = "") }
         }
-    }
-
-    private fun shouldSkipPlayback(url: String): Boolean {
-        return lifecycleManager.lifecycleState.value == Playing && _state.value.currentPlayUrl == url
     }
 }

@@ -30,22 +30,32 @@ class InniePlayerStrategy(
         onError: (String) -> Unit
     ) {
         try {
-            // 1. 加载媒体URL
-            val loadSuccess = loadMediaUrl(result, onError)
-            if (!loadSuccess) {
-                return
+            // 1. 确保播放器已初始化（从 Idle 状态转换）
+            if (lifecycleManager.lifecycleState.value == Idle) {
+                log.debug("<Innie> 播放器未初始化，开始初始化...")
+                val initResult = lifecycleManager.initializeSync()
+                if (initResult.isFailure) {
+                    onError("播放器初始化失败: ${initResult.exceptionOrNull()?.message}")
+                    return
+                }
             }
-            
-            // 2. 准备播放器
+                
+            // 2. 准备播放器（转换到 Ready 状态）
             val prepareResult = lifecycleManager.prepareForPlayback()
             if (prepareResult.isFailure) {
                 onError("播放器准备失败: ${prepareResult.exceptionOrNull()?.message}")
                 return
             }
-            
-            // 3. 启动播放并等待真正开始播放
+                
+            // 3. 加载媒体 URL
+            val loadSuccess = loadMediaUrl(result, onError)
+            if (!loadSuccess) {
+                return
+            }
+                
+            // 4. 启动播放并等待真正开始播放
             waitForPlaybackToStart(onPlayStarted, onError)
-            
+                
         } catch (e: Exception) {
             log.error("内部播放器播放失败", e)
             onError("播放器初始化失败: ${e.message}")

@@ -201,7 +201,11 @@ class VlcjController(val vm: DetailViewModel) : PlayerController {
                 delay(500)
                 log.debug("finished:运行协程任务")
                 try {
-                    if (!vm.isLastEpisode) {
+                    // DLNA投屏时不自动换集
+                    if (vm.state.value.isDLNA) {
+                        log.info("DLNA投屏模式，跳过自动换集")
+                        SnackBar.postMsg("投屏播放完成", type = SnackBar.MessageType.INFO)
+                    } else if (!vm.isLastEpisode) {
                         log.info("切换下一集")
                         vm.nextEP() // 非最后一集才切换
                     } else {
@@ -502,7 +506,10 @@ class VlcjController(val vm: DetailViewModel) : PlayerController {
         deferredEffects.clear()
         player?.events()?.removeMediaPlayerEventListener(stateListener)
         player?.release()
-        factory.release()
+        // 只有当 factory 已初始化时才释放
+        if (::factory.isInitialized) {
+            factory.release()
+        }
         player = null
         log.debug("dispose - 释放成功")
     }

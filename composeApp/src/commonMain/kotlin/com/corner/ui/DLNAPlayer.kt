@@ -57,6 +57,33 @@ fun WindowScope.DLNAPlayer(vm:DetailViewModel, onClickBack:() -> Unit) {
 
     val setUrlMutex = remember { Mutex() }
 
+    fun cleanupResources() {
+        if (vm.vmPlayerType.first() == PlayerType.Innie.id && !GlobalAppState.closeApp.value) {
+            log.debug("DLNAPlayer 销毁 - 调用 DetailViewModel.clear() 释放资源")
+            vm.clear()
+        }
+    }
+    
+    // 设置DLNA停止回调
+    DisposableEffect(Unit) {
+        GlobalAppState.onDLNAStop = {
+            log.debug("收到DLNA停止事件，结束会话并返回")
+            vm.endDLNASession()
+            // 延迟一下，确保状态已清理
+            scope.launch {
+                delay(300)
+                onClickBack()
+            }
+        }
+        
+        onDispose {
+            // 清理回调，避免内存泄漏
+            GlobalAppState.onDLNAStop = null
+            // 当 DLNAPlayer 被销毁时（无论是手动返回还是stop回调），都要清理资源
+            cleanupResources()
+        }
+    }
+
     LaunchedEffect(model.value.isLoading) {
         if (model.value.isLoading) {
             showProgress()
@@ -88,10 +115,6 @@ fun WindowScope.DLNAPlayer(vm:DetailViewModel, onClickBack:() -> Unit) {
 
         onDispose {
             job.cancel()
-            if (vm.vmPlayerType.first() == PlayerType.Innie.id && !GlobalAppState.closeApp.value){
-                log.debug("DLNA - 调用DetailViewMode销毁播放器")
-                vm.clear()
-            }
         }
     }
 
@@ -102,6 +125,7 @@ fun WindowScope.DLNAPlayer(vm:DetailViewModel, onClickBack:() -> Unit) {
                     Text(text = "DLNA", style = MaterialTheme.typography.headlineMedium)
                 }, leading = {
                     BackRow(Modifier, onClickBack = {
+                        vm.endDLNASession()
                         onClickBack()
                     }) {
                         Row(
