@@ -70,18 +70,16 @@ class TVLogConfigurator {
             println("Log4j2 configured successfully.")
         }
 
-        // 修复1：修改返回类型为 AppenderComponentBuilder
         private fun createConsoleAppender(builder: ConfigurationBuilder<BuiltConfiguration>): org.apache.logging.log4j.core.config.builder.api.AppenderComponentBuilder {
             return builder.newAppender("Console", "CONSOLE")
                 .addAttribute("target", "SYSTEM_OUT")
                 .add(
                     builder.newLayout("PatternLayout")
-                        .addAttribute("pattern", "%d{HH:mm:ss.SSS} %-5level [*%-15.15thread] *%-15.15logger{0} -> %msg%n")
+                        .addAttribute("pattern", "%d{HH:mm:ss.SSS} %-5level [*%-15.15thread] *%-15.15logger{0} %msg%n")
                         .addAttribute("charset", "UTF-8")
                 )
         }
 
-        // 修复2：修改返回类型为 AppenderComponentBuilder
         private fun createFileAppender(builder: ConfigurationBuilder<BuiltConfiguration>): org.apache.logging.log4j.core.config.builder.api.AppenderComponentBuilder {
             val logPath = Paths.logPath().toString()
             val fileName = "$logPath/TV.log"

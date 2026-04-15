@@ -184,7 +184,7 @@ class Init {
                     ).init()
                     _isInitializedSuccessfully.value = true  // 回退方式初始化成功
                 } catch (e2: Exception) {
-                    log.error("JSON 解析也失败", e2)
+                    log.error("JSON解析失败,初始化配置失败！", e2)
                     _isInitializedSuccessfully.value = false  // 完全失败
                     hideProgress()
                     return
