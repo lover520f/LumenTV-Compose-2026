@@ -6,8 +6,10 @@ import io.ktor.server.application.*
 import io.ktor.server.engine.*
 import io.ktor.server.netty.*
 import io.ktor.server.plugins.cors.routing.*
+import io.ktor.server.websocket.*
 import io.netty.handler.codec.http.HttpServerCodec
 import org.slf4j.LoggerFactory
+import kotlin.time.Duration.Companion.seconds
 
 private val log = LoggerFactory.getLogger("KtorD")
 
@@ -118,7 +120,13 @@ object KtorD {
  * KtorD 模块
  */
 private fun Application.module() {
-    val ports = listOf("9978", "9979", "9980", "9981", "9982", "9983", "9984", "9985", "9986", "9987", "9988", "9989", "9990", "9991", "9992", "9993", "9994", "9995", "9996", "9997", "9998", "9999")
+    install(WebSockets) {
+        pingPeriod = null
+        timeout = 15.seconds
+        maxFrameSize = Long.MAX_VALUE
+        masking = false
+    }
+    
     // 跨域
     install(CORS) {
         allowMethod(HttpMethod.Options)
@@ -129,9 +137,15 @@ private fun Application.module() {
         allowHeader(HttpHeaders.Accept)
         allowHeader(HttpHeaders.Range)
         allowHeader("X-Requested-With")
+        allowHeader("Upgrade")  // WebSocket 升级请求
+        allowHeader("Connection")
+        allowHeader("Sec-WebSocket-Key")
+        allowHeader("Sec-WebSocket-Version")
+        allowHeader("Sec-WebSocket-Extensions")
         allowNonSimpleContentTypes = true
-        allowHost("127.0.0.1", ports)
-        allowHost("localhost", ports)
+
+        anyHost()
+        
         allowCredentials = false
     }
 

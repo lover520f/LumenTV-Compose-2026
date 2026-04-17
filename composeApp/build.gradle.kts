@@ -102,9 +102,6 @@ kotlin {
                 implementation(libs.jupnp.support)
                 implementation(libs.jupnp.osgi)
 
-                // WebSocket
-                implementation(libs.java.websocket)
-
                 // Coroutines
                 implementation(libs.kotlinx.coroutines.swing)
             }
@@ -119,10 +116,6 @@ kotlin {
                 implementation(libs.image.loader.extension.imageio)
                 // TwelveMonkeys ImageIO plugin for WebP support (Java 8+)
                 implementation(libs.twelvemonkeys.webp)
-                // Note: AVIF/HEIF support is disabled by default
-                // Requires system-level libheif installation
-                // Uncomment the following line after installing libheif:
-                // implementation(libs.nightmonkeys.heif)
             }
         }
     }

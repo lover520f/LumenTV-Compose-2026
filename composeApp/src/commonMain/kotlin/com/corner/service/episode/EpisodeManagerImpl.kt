@@ -139,21 +139,13 @@ class EpisodeManagerImpl : EpisodeManager {
         onOpenUri: (String) -> Unit,
         onPlayEpisode: (Vod, Episode) -> Unit
     ) {
-        // 检查是否为下载链接
-        val isDownloadLink = com.corner.util.net.Utils.isDownloadLink(episode.url)
-        
-        if (isDownloadLink) {
-            onOpenUri(episode.url)
-            return
-        }
-        
         // 更新剧集激活状态
         val updatedDetail = updateEpisodeActivationStates(detail, episode)
         
         // 如果需要，停止当前播放
         stopCurrentPlaybackIfNeeded(playerTypeId, lifecycleManager)
         
-        // 播放新剧集
+        // 播放新剧集（包括磁力链接）
         onPlayEpisode(updatedDetail, episode)
     }
     

@@ -121,7 +121,7 @@ class HistoryServiceImpl(
                 detail.currentFlag.flag!!,
                 detail.getEpisode()?.name ?: detail.vodName!!
             )
-            log.debug("[StartPlay]创建新历史记录完成")
+            log.debug("创建新历史记录完成")
             controller.setControllerHistory(newHistory)
         }
         

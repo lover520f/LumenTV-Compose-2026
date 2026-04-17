@@ -45,7 +45,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.swing.Swing
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withLock
 import org.apache.commons.lang3.StringUtils
 import java.util.concurrent.CopyOnWriteArrayList
 
@@ -1057,9 +1056,8 @@ class DetailViewModel : BaseViewModel() {
     private fun isSpecialVideoLink(ep: Episode): Boolean {
         if (Utils.isDownloadLink(ep.url)) {
             isDownloadUrl.value = true
-            log.info("播放链接为下载链接,驳回播放请求，isDownloadUrl:{}", isDownloadUrl.value)
-            SnackBar.postMsg("播放链接为下载链接,无法播放", type = SnackBar.MessageType.WARNING)
-            return true
+            log.info("检测到磁力链接，将通过对话框提示用户选择，url:{}", ep.url)
+            return true  // 磁力链接是特殊链接，需要弹出对话框
         }
 
         val isSpecialLink = SiteViewModel.state.value.isSpecialVideoLink

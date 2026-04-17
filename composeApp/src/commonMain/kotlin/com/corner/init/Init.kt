@@ -79,7 +79,6 @@ class Init {
             try {
                 VlcJInit.release()      //release VlcJ
                 resetAllStates()        //reset all states
-                BrowserUtils.cleanupWebSocketServer()  //stop webSocket
                 KtorD.stop()            //stop KtorD
                 stopKoin()              //stop Koin
                 stopDLNA()              //stop DLNA

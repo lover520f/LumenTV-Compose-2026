@@ -252,6 +252,20 @@ object SiteViewModel {
         val urlStr = result.url.v()
         if (urlStr.isBlank()) return // URL为空直接跳过
 
+        // 0. 检测并处理磁力链接
+        if (com.corner.util.net.Utils.isDownloadLink(urlStr)) {
+            log.debug("发现磁力链接: $urlStr")
+            // 根据用户选择更新状态
+            if (!DialogState.userChoseOpenInBrowser) {
+                DialogState.showPngDialog(urlStr)
+                changeDialogState(true)
+            } else {
+                changeDialogState(false)
+            }
+            _state.update { it.copy(isSpecialVideoLink = true) }
+            return // 磁力链接无需后续处理
+        }
+
         // 1. 检测并处理「包含.m3u8但不以.m3u8结尾」的特殊链接
         val isSpecialLink = !urlStr.contains("proxy")
                 && urlStr.contains(".m3u8", ignoreCase = true)
