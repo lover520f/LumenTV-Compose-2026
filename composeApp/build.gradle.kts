@@ -102,6 +102,9 @@ kotlin {
                 implementation(libs.jupnp.support)
                 implementation(libs.jupnp.osgi)
 
+                // Playwright for WAF bypass (used by some spiders like ChangZhang)
+                implementation(libs.playwright)
+
                 // Coroutines
                 implementation(libs.kotlinx.coroutines.swing)
             }

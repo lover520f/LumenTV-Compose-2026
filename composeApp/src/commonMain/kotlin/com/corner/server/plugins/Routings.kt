@@ -11,6 +11,7 @@ import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.http.content.*
 import io.ktor.server.plugins.origin
+import io.ktor.server.request.receive
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import io.ktor.server.websocket.*
@@ -102,6 +103,9 @@ fun Application.configureRouting() {
 
         /**
          * 弹窗消息
+         * 支持 GET 和 POST 请求
+         * GET: /postMsg?msg=消息内容&type=INFO&priority=0
+         * POST: {"msg": "消息内容", "type": "INFO", "priority": 0, "key": "unique_key"}
          */
         get("/postMsg") {
             val msg = call.request.queryParameters["msg"]
@@ -109,7 +113,73 @@ fun Application.configureRouting() {
                 call.respond(HttpStatusCode.MultiStatus, "消息不可为空")
                 return@get
             }
-            SnackBar.postMsg(msg!!)
+            
+            // 解析可选参数
+            val typeStr = call.request.queryParameters["type"] ?: "INFO"
+            val priorityStr = call.request.queryParameters["priority"] ?: "0"
+            val key = call.request.queryParameters["key"]
+            
+            // 转换消息类型
+            val messageType = try {
+                com.corner.ui.scene.SnackBar.MessageType.valueOf(typeStr.uppercase())
+            } catch (e: Exception) {
+                com.corner.ui.scene.SnackBar.MessageType.INFO
+            }
+            
+            // 转换优先级
+            val priority = priorityStr.toIntOrNull() ?: 0
+            
+            SnackBar.postMsg(msg!!, priority, messageType, key)
+            call.respondText("消息已发送: $msg (类型: $messageType, 优先级: $priority)")
+        }
+        
+        post("/postMsg") {
+            try {
+                val requestBody = call.receive<Map<String, String>>()
+                val msg = requestBody["msg"]
+                
+                if (msg.isNullOrBlank()) {
+                    call.respond(HttpStatusCode.BadRequest, mapOf(
+                        "error" to "消息内容不能为空",
+                        "required_fields" to listOf("msg"),
+                        "optional_fields" to listOf("type", "priority", "key")
+                    ))
+                    return@post
+                }
+                
+                // 解析可选参数
+                val typeStr = requestBody["type"] ?: "INFO"
+                val priorityStr = requestBody["priority"] ?: "0"
+                val key = requestBody["key"]
+                
+                // 转换消息类型
+                val messageType = try {
+                    com.corner.ui.scene.SnackBar.MessageType.valueOf(typeStr.uppercase())
+                } catch (e: Exception) {
+                    com.corner.ui.scene.SnackBar.MessageType.INFO
+                }
+                
+                // 转换优先级
+                val priority = priorityStr.toIntOrNull() ?: 0
+                
+                SnackBar.postMsg(msg, priority, messageType, key)
+                
+                call.respond(HttpStatusCode.OK, mapOf(
+                    "success" to true,
+                    "message" to "消息已发送",
+                    "data" to mapOf(
+                        "content" to msg,
+                        "type" to messageType.toString(),
+                        "priority" to priority,
+                        "key" to key
+                    )
+                ))
+            } catch (e: Exception) {
+                log.error("处理 POST /postMsg 请求失败", e)
+                call.respond(HttpStatusCode.BadRequest, mapOf(
+                    "error" to "请求格式错误: ${e.message}"
+                ))
+            }
         }
 
         /**

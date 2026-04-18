@@ -43,6 +43,9 @@ koin = "3.5.3"
 # Coroutines
 kotlinx-coroutines = "1.7.3"
 
+# Playwright for WAF bypass
+playwright = "1.58.0"
+
 
 [libraries]
 # Player
@@ -128,6 +131,9 @@ kotlinx-coroutines-swing = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-
 jupnp-bom-compile = { module = "org.jupnp.bom:org.jupnp.bom.compile", version.ref = "jupnp"}
 jupnp-osgi = { module = "org.jupnp:org.jupnp.osgi", version.ref = "jupnp" }
 jupnp-support = { module = "org.jupnp:org.jupnp.support", version.ref = "jupnp" }
+
+# Playwright
+playwright = { module = "com.microsoft.playwright:playwright", version.ref = "playwright" }
 
 
 [plugins]

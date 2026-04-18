@@ -266,10 +266,23 @@ object SiteViewModel {
             return // 磁力链接无需后续处理
         }
 
+        // 0.5. 处理需要解析的加密 URL（parse == 1）
+        if (result.parse == 1 && result.key != null) {
+            log.debug("检测到需要解析的 URL (parse=1): $urlStr")
+            // 将加密 URL 转换为本地代理 URL，由 Spider 的 proxyLocal 方法解密
+            val proxyUrl = "http://127.0.0.1:${com.corner.server.KtorD.getPort()}/proxy?do=${result.key}&url=${java.net.URLEncoder.encode(urlStr, "UTF-8")}"
+            result.url = Url().add(proxyUrl)
+            result.parse = 0 // 已转换为代理 URL，无需再次解析
+            log.debug("转换为代理 URL: $proxyUrl")
+            return // 代理 URL 无需后续处理
+        }
+
         // 1. 检测并处理「包含.m3u8但不以.m3u8结尾」的特殊链接
+        // 注意：需要先去除查询参数再判断，避免将带参数的正常 m3u8 URL 误判为特殊链接
+        val urlWithoutQuery = urlStr.split("?").firstOrNull() ?: urlStr
         val isSpecialLink = !urlStr.contains("proxy")
                 && urlStr.contains(".m3u8", ignoreCase = true)
-                && !urlStr.trim().endsWith(".m3u8", ignoreCase = true)
+                && !urlWithoutQuery.trim().endsWith(".m3u8", ignoreCase = true)
 
         if (isSpecialLink) {
             log.debug("发现特殊链接(包含.m3u8但不以.m3u8结尾): $urlStr")
@@ -287,7 +300,7 @@ object SiteViewModel {
         }
 
         // 2. 处理「标准M3U8链接」（以.m3u8结尾、不含proxy）
-        val isStandardM3u8 = urlStr.endsWith(".m3u8") && !urlStr.contains("proxy")
+        val isStandardM3u8 = urlWithoutQuery.endsWith(".m3u8", ignoreCase = true) && !urlStr.contains("proxy")
         if (isStandardM3u8) {
             result.url = processM3U8(result.url)
             log.debug("Processed standard M3U8 link: $urlStr")
@@ -375,15 +388,19 @@ object SiteViewModel {
             }
 
             // 3. 处理嵌套M3U8
-            val processedContent = Regex("(?m)^(?!#).*\\.m3u8$").replace(processedKeyContent) { match ->
+            val processedNestedContent = Regex("(?m)^(?!#).*\\.m3u8$").replace(processedKeyContent) { match ->
                 val nestedUrl = match.value.let {
                     if (it.startsWith("http")) it else "${url.v().substringBeforeLast("/")}/$it"
                 }
                 processM3U8(Url().add(nestedUrl), false).v() // 递归处理
             }
 
+            // 4. 将相对路径的 .ts 片段转换为完整 URL（不代理，让 HLS.js 直接访问）
+            val processedTsContent = convertRelativeTsToAbsolute(processedNestedContent, url.v())
+
             // 缓存内容并返回代理URL
-            val cacheId = M3U8Cache.put(processedContent)
+            val cacheId = M3U8Cache.put(processedTsContent)
+            log.debug("缓存M3U8文件成功，: http://127.0.0.1:9978/proxy/cached_m3u8?id=$cacheId")
             return Url().add("http://127.0.0.1:9978/proxy/cached_m3u8?id=$cacheId")
         } catch (e: Exception) {
             log.error("处理 M3U8 文件失败", e)
@@ -447,6 +464,47 @@ object SiteViewModel {
         return "http://127.0.0.1:9978/proxy/cached_m3u8?id=$cacheId"
     }
 
+    /**
+     * 将 m3u8 文件中的相对路径 .ts 片段转换为完整 URL
+     * 注意：不代理 .ts 文件，直接返回原始完整 URL，让 HLS.js 直接访问
+     * @param content m3u8 文件内容
+     * @param baseUrl m3u8 文件的基准 URL
+     * @return 处理后的 m3u8 内容
+     */
+    private fun convertRelativeTsToAbsolute(content: String, baseUrl: String): String {
+        // 创建基准 URI，用于解析相对路径
+        val baseUri = try {
+            java.net.URI(baseUrl)
+        } catch (e: Exception) {
+            log.error("无效的基准 URL: $baseUrl", e)
+            return content // 如果基准 URL 无效，返回原始内容
+        }
+        
+        // 匹配所有非注释行且包含 .ts 的行
+        return content.lines().joinToString("\n") { line ->
+            when {
+                // 跳过注释行和空行
+                line.startsWith("#") || line.isBlank() -> line
+                // 已经是完整 URL，不需要处理
+                line.startsWith("http") -> line
+                // 处理相对路径的 .ts 文件，转换为完整 URL
+                line.contains(".ts", ignoreCase = true) -> {
+                    try {
+                        // 使用 URI.resolve() 正确解析相对路径
+                        val resolvedUri = baseUri.resolve(line)
+                        val fullUrl = resolvedUri.toString()
+                        log.debug("转换相对路径 .ts: $line -> $fullUrl")
+                        fullUrl // 返回完整的原始 URL，不代理
+                    } catch (e: Exception) {
+                        log.error("URL 解析失败: line=$line, baseUrl=$baseUrl", e)
+                        line // 解析失败时保留原始行
+                    }
+                }
+                else -> line
+            }
+        }
+    }
+
 
     /**
      * 根据站点和关键词进行搜索操作，支持快速搜索模式
@@ -490,7 +548,6 @@ object SiteViewModel {
     @Suppress("unused")
     fun searchContent(site: Site, keyword: String, page: String) {
         try {
-            // 检查站点类型是否为 3
             if (site.type == 3) {
                 val spider: Spider = ApiConfig.getSpider(site)
                 val searchContent = spider.searchContent(keyword, false, page)
@@ -537,11 +594,14 @@ object SiteViewModel {
             if (site.type == 3) {
                 val spider: Spider = ApiConfig.getSpider(site)
                 val categoryContent = spider.categoryContent(tid, page, filter, extend)
-                log.debug("type3 cate: $categoryContent")
                 ApiConfig.setRecent(site)
                 result.value = Jsons.decodeFromString<Result>(categoryContent)
+                if (isEmptyResult(result.value)) {
+                    log.warn("type3 cate is Empty: {}", categoryContent)
+                }
+                // 获取封面图片
+                fetchPic(site, result.value)
             } else {
-                // 非类型 3 的站点，构建请求参数
                 val params = mutableMapOf<String, String>()
                 if (site.type == 1 && extend.isNotEmpty()) params["f"] = Jsons.encodeToString(extend)
                 else if (site.type == 4) params["ext"] = Utils.base64(Jsons.encodeToString(extend))
@@ -549,8 +609,12 @@ object SiteViewModel {
                 params["t"] = tid
                 params["pg"] = page
                 val categoryContent = call(site, params, true)
-                log.debug("cate: $categoryContent")
                 result.value = Jsons.decodeFromString<Result>(categoryContent)
+                if (isEmptyResult(result.value)) {
+                    log.warn("type${site.type} cate is Empty: {}", categoryContent)
+                }
+                // 获取封面图片
+                fetchPic(site, result.value)
             }
         } catch (e: Exception) {
             log.error("${site.name} category error", e)
@@ -571,14 +635,12 @@ object SiteViewModel {
             if (quickSearch.value.isEmpty()) {
                 search.value = quickSearch.value.copyAdd(Collect.all())
             }
-            // 同样的数据添加到全部
             quickSearch.value[0].list.addAll(result.list)
         } else {
             search.value = search.value.copyAdd(Collect.create(result.list))
             if (search.value.isEmpty()) {
                 search.value = search.value.copyAdd(Collect.all())
             }
-            // 同样的数据添加到全部
             search.value[0].list.addAll(result.list)
         }
     }
@@ -640,4 +702,11 @@ private fun fetchPic(site: Site, result: Result): Result {
     result.list.clear()
     result.list.addAll(Jsons.decodeFromString<Result>(response).list)
     return result
+}
+
+private fun isEmptyResult(result: Result): Boolean {
+    return result.list.isEmpty() && 
+           result.types.isEmpty() && 
+           result.filters.isEmpty() &&
+           result.url.values.isEmpty()
 }
