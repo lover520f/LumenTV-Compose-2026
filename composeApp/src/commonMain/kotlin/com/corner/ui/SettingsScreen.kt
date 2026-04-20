@@ -122,13 +122,11 @@ enum class SettingsCategory(
     PLAYWRIGHT("自动化", Icons.Filled.Web),
     ADVANCED("高级", Icons.Filled.Code),
     ABOUT("关于", Icons.Filled.Info),
-
 }
 
 @Composable
 fun WindowScope.SettingScene(vm: SettingViewModel, config: M3U8FilterConfig, onClickBack: () -> Unit) {
     val model = vm.state.collectAsState()
-    var showAboutDialog by remember { mutableStateOf(false) }
     val isDarkTheme by GlobalAppState.isDarkTheme.collectAsState()
     val filterConfig = remember { mutableStateOf(SettingStore.getM3U8FilterConfig()) }
     val isAdFilterEnabled by remember { mutableStateOf(SettingStore.isAdFilterEnabled()) }
@@ -312,7 +310,6 @@ fun WindowScope.SettingScene(vm: SettingViewModel, config: M3U8FilterConfig, onC
                         )
 
                         SettingsCategory.ABOUT -> AboutSettingsContent(
-                            onShowAbout = { showAboutDialog = true },
                             modifier = Modifier.fillMaxSize()
                         )
                     }
@@ -321,16 +318,7 @@ fun WindowScope.SettingScene(vm: SettingViewModel, config: M3U8FilterConfig, onC
         }
     }
 
-    if (showAboutDialog) {
-        AboutDialog(
-            modifier = Modifier
-                .fillMaxWidth(0.5f)
-                .fillMaxHeight(0.8f),
-            showDialog = showAboutDialog,
-            onDismiss = { showAboutDialog = false },
-            contentPadding = PaddingValues(16.dp)
-        )
-    }
+
 
     if (showRestartDialog) {
         SnackBar.postMsg("重启生效", type = SnackBar.MessageType.INFO)
@@ -1399,52 +1387,297 @@ fun AdvancedSettingsContent(
 
 @Composable
 fun AboutSettingsContent(
-    onShowAbout: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Box(
+    val scrollState = rememberScrollState()
+    
+    LazyColumn(
         modifier = modifier.padding(24.dp),
-        contentAlignment = Alignment.Center
+        verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(24.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Default.Info,
-                contentDescription = null,
-                modifier = Modifier.size(64.dp),
-                tint = MaterialTheme.colorScheme.primary
-            )
-
-            Text(
-                text = "关于 LumenTV",
-                style = MaterialTheme.typography.headlineMedium,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-
-            Text(
-                text = "查看应用版本、开发团队和开源协议等信息",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center
-            )
-
-            Button(
-                onClick = onShowAbout,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary
+        // Logo and App Info Section
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant
                 ),
-                shape = RoundedCornerShape(12.dp)
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                shape = RoundedCornerShape(16.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Default.Info,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("查看详情")
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    // App Logo
+                    Image(
+                        painter = painterResource(Res.drawable.LumenTV_icon_svg),
+                        contentDescription = "App Logo",
+                        modifier = Modifier
+                            .size(120.dp)
+                            .clip(CircleShape)
+                            .border(
+                                width = 3.dp,
+                                color = MaterialTheme.colorScheme.primary,
+                                shape = CircleShape
+                            ),
+                        contentScale = ContentScale.Crop
+                    )
+                    
+                    // App Name and Version
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            text = "LumenTV Compose",
+                            style = MaterialTheme.typography.headlineSmall.copy(
+                                fontWeight = FontWeight.Bold
+                            ),
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        
+                        Text(
+                            text = "版本 ${AppVersion.VERSION_NAME}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    
+                    HorizontalDivider(
+                        modifier = Modifier.padding(vertical = 8.dp),
+                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
+                    )
+                    
+                    // App Description
+                    Text(
+                        text = "一个基于 Kotlin Multiplatform 和 Jetpack Compose 构建的现代化Catvod播放器",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+        }
+        
+        // Development Team Section
+        item {
+            SettingCard(
+                title = "开发团队",
+                icon = Icons.Default.Group
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    // Developer 1
+                    AboutTeamMemberItem(
+                        name = "Clevebitr",
+                        role = "该版本开发者",
+                        link = "https://github.com/clevebitr"
+                    )
+                    
+                    HorizontalDivider(
+                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
+                    )
+                    
+                    // Developer 2
+                    AboutTeamMemberItem(
+                        name = "Greatwallcorner",
+                        role = "主要开发者",
+                        link = "https://github.com/Greatwallcorner"
+                    )
+                    
+                    HorizontalDivider(
+                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
+                    )
+                    
+                    // Contributors
+                    AboutTeamMemberItem(
+                        name = "贡献者",
+                        role = "开源社区",
+                        link = "https://github.com/Greatwallcorner/TV-Multiplatform/graphs/contributors"
+                    )
+                }
+            }
+        }
+        
+        // Links Section
+        item {
+            SettingCard(
+                title = "相关链接",
+                icon = Icons.AutoMirrored.Filled.OpenInNew
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    // Telegram Group
+                    FilledTonalButton(
+                        onClick = { openBrowser("https://t.me/tv_multiplatform") },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.filledTonalButtonColors(
+                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.Chat,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Column {
+                                    Text(
+                                        text = "Telegram 群组",
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                    Text(
+                                        text = "加入原项目讨论",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
+                                    )
+                                }
+                            }
+                            Icon(
+                                Icons.AutoMirrored.Filled.OpenInNew,
+                                contentDescription = "打开链接",
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                    
+                    // This Version Source Code
+                    FilledTonalButton(
+                        onClick = { openBrowser("https://github.com/Clevebitr/TV-Multiplatform") },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.filledTonalButtonColors(
+                            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onTertiaryContainer
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Code,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Column {
+                                    Text(
+                                        text = "该版本源代码",
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                    Text(
+                                        text = "查看 Clevebitr 分支",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.7f)
+                                    )
+                                }
+                            }
+                            Icon(
+                                Icons.AutoMirrored.Filled.OpenInNew,
+                                contentDescription = "打开链接",
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                    
+                    // Original Project Source Code
+                    FilledTonalButton(
+                        onClick = { openBrowser("https://github.com/Greatwallcorner/TV-Multiplatform") },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.filledTonalButtonColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Code,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Column {
+                                    Text(
+                                        text = "原项目源代码",
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                    Text(
+                                        text = "查看 Greatwallcorner 主仓库",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                                    )
+                                }
+                            }
+                            Icon(
+                                Icons.AutoMirrored.Filled.OpenInNew,
+                                contentDescription = "打开链接",
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        
+        // License Section
+        item {
+            SettingCard(
+                title = "开源协议",
+                icon = Icons.Default.Security
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "本项目采用 GPL-3.0 开源协议",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    FilledTonalButton(
+                        onClick = { openBrowser("https://github.com/clevebitr/LumenTV-Compose/blob/main/LICENSE") },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.filledTonalButtonColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    ) {
+                        Text("查看开源协议")
+                    }
+                }
             }
         }
     }
@@ -1617,257 +1850,63 @@ private fun testProxyConnection(proxyUrl: String) {
     }
 }
 
+// 关于页面团队成员项
 @Composable
-fun AboutDialog(
-    modifier: Modifier = Modifier,
-    showDialog: Boolean,
-    onDismiss: () -> Unit,
-    contentPadding: PaddingValues = PaddingValues(24.dp)
+fun AboutTeamMemberItem(
+    name: String,
+    role: String,
+    link: String
 ) {
-    var visible by remember { mutableStateOf(false) }
-    val scrollState = rememberScrollState()
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false)
-    ) {
-        Card(
-            modifier = modifier
-                .fillMaxWidth(0.9f)
-                .heightIn(min = 400.dp, max = 600.dp)
-                .padding(16.dp),
-            shape = RoundedCornerShape(24.dp),
-            elevation = CardDefaults.cardElevation(8.dp)
-        ) {
-            Column(
-                modifier = Modifier
-                    .verticalScroll(scrollState)  // 添加垂直滚动支持
-                    .padding(contentPadding),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                // Header with avatar
-                AnimatedVisibility(
-                    visible = visible,
-                    enter = fadeIn() + slideInVertically(
-                        initialOffsetY = { -40 },
-                        animationSpec = tween(500)
-                    )
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Image(
-                            painter = painterResource(Res.drawable.LumenTV_icon_svg),
-                            contentDescription = "App Logo",
-                            modifier = Modifier
-                                .size(120.dp)
-                                .clip(CircleShape)
-                                .border(
-                                    width = 2.dp,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    shape = CircleShape
-                                ),
-                            contentScale = ContentScale.Crop
-                        )
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        Text(
-                            "LumenTV Compose",
-                            style = MaterialTheme.typography.headlineSmall,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-
-                        Text(
-                            text = AppVersion.VERSION_NAME,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                        )
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(24.dp))
-                // Author section - 保持水平滚动
-                AboutSection(
-                    title = "开发团队",
-                    items = listOf(
-                        AboutItem(
-                            name = "Clevebitr",
-                            role = "该版本开发者",
-                            link = "https://github.com/clevebitr",
-                            icon = Icons.Default.Person
-                        ),
-                        AboutItem(
-                            name = "Greatwallcorner",
-                            role = "主要开发者",
-                            link = "https://github.com/Greatwallcorner",
-                            icon = Icons.Default.Person
-                        ),
-                        AboutItem(
-                            name = "贡献者",
-                            role = "开源社区",
-                            link = "https://github.com/Greatwallcorner/TV-Multiplatform/graphs/contributors",
-                            icon = Icons.Default.Group
-                        )
-                    )
-                )
-
-                Spacer(modifier = Modifier.height(24.dp))
-
-                // Links section
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    FilledTonalButton(
-                        onClick = { openBrowser("https://t.me/tv_multiplatform") },
-                        modifier = Modifier.fillMaxWidth(0.8f),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.filledTonalButtonColors(
-                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer
-                        )
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = null)
-                            Text("加入原项目Telegram群组")
-                        }
-                    }
-                    FilledTonalButton(
-                        onClick = { openBrowser("https://github.com/Clevebitr/TV-Multiplatform") },
-                        modifier = Modifier.fillMaxWidth(0.8f),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.filledTonalButtonColors(
-                            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                            contentColor = MaterialTheme.colorScheme.onTertiaryContainer
-                        )
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Icon(Icons.Default.Code, contentDescription = null)
-                            Text("查看该版本源代码")
-                        }
-                    }
-
-                    FilledTonalButton(
-                        onClick = { openBrowser("https://github.com/Greatwallcorner/TV-Multiplatform") },
-                        modifier = Modifier.fillMaxWidth(0.8f),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.filledTonalButtonColors(
-                            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
-                            contentColor = MaterialTheme.colorScheme.onTertiaryContainer
-                        )
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Icon(Icons.Default.Code, contentDescription = null)
-                            Text("查看原项目源代码")
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    LaunchedEffect(showDialog) {
-        if (showDialog) {
-            delay(100)
-            visible = true
-        } else {
-            visible = false
-        }
-    }
-}
-
-// New data class for author information
-data class AboutItem(
-    val name: String,
-    val role: String,
-    val link: String,
-    val icon: ImageVector
-)
-
-// New composable for author section
-@Composable
-fun AboutSection(
-    title: String,
-    items: List<AboutItem>
-) {
-    Column(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleMedium,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
-            modifier = Modifier.padding(bottom = 8.dp)
+    ElevatedButton(
+        onClick = { openBrowser(link) },
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        colors = ButtonDefaults.elevatedButtonColors(
+            containerColor = MaterialTheme.colorScheme.surface,
+            contentColor = MaterialTheme.colorScheme.onSurface
+        ),
+        elevation = ButtonDefaults.buttonElevation(
+            defaultElevation = 1.dp,
+            pressedElevation = 3.dp
         )
-
-        // 垂直按钮列表
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            items.forEach { item ->
-                ElevatedButton(
-                    onClick = { openBrowser(item.link) },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.elevatedButtonColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                        contentColor = MaterialTheme.colorScheme.onSurfaceVariant
-                    ),
-                    elevation = ButtonDefaults.buttonElevation(
-                        defaultElevation = 2.dp,
-                        pressedElevation = 4.dp
+            // Left side: Avatar and text
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Person,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp)
+                )
+                Column {
+                    Text(
+                        text = name,
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Medium
                     )
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        // 左侧头像和文本
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Icon(
-                                imageVector = item.icon,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(24.dp)
-                            )
-                            Column {
-                                Text(
-                                    text = item.name,
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    fontWeight = FontWeight.Medium
-                                )
-                                Text(
-                                    text = item.role,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                                )
-                            }
-                        }
-
-                        // 右侧链接图标
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.OpenInNew,
-                            contentDescription = "打开链接",
-                            modifier = Modifier.size(20.dp),
-                            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                        )
-                    }
+                    Text(
+                        text = role,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                    )
                 }
             }
+            
+            // Right side: Link icon
+            Icon(
+                imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                contentDescription = "打开链接",
+                modifier = Modifier.size(20.dp),
+                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+            )
         }
     }
 }
