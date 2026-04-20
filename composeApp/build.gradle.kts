@@ -20,9 +20,14 @@ dependencies {
 
 kotlin {
     jvm("desktop")
+    
+    // Configure Java toolchain (Java 8+ required, Java 17+ recommended)
+    jvmToolchain(17)
 
     sourceSets {
         commonMain {
+            kotlin.srcDir("build/generated/ksp/metadata/commonMain/kotlin")
+            
             dependencies {
                 implementation(compose.runtime)
                 implementation(compose.foundation)
@@ -97,8 +102,8 @@ kotlin {
                 implementation(libs.jupnp.support)
                 implementation(libs.jupnp.osgi)
 
-                // WebSocket
-                implementation(libs.java.websocket)
+                // Playwright for WAF bypass (used by some spiders like ChangZhang)
+                implementation(libs.playwright)
 
                 // Coroutines
                 implementation(libs.kotlinx.coroutines.swing)
@@ -110,7 +115,51 @@ kotlin {
                 implementation(compose.desktop.currentOs)
                 // Player
                 implementation(libs.vlcj)
+                // ImageIO Decoder for WebP support
+                implementation(libs.image.loader.extension.imageio)
+                // TwelveMonkeys ImageIO plugin for WebP support (Java 8+)
+                implementation(libs.twelvemonkeys.webp)
             }
+        }
+    }
+}
+
+// 生成版本号常量
+tasks.register("generateVersionConstants") {
+    val version = libs.versions.app.version.get()
+    val outputDir = layout.buildDirectory.dir("generated/version").get().asFile
+    val outputFile = File(outputDir, "AppVersion.kt")
+    
+    doLast {
+        outputDir.mkdirs()
+        outputFile.writeText(
+            """
+            package com.corner.util
+            
+            /**
+             * 应用版本号（从 gradle/libs.versions.toml 自动生成）
+             * 不要手动修改此文件！
+             */
+            object AppVersion {
+                const val VERSION = "$version"
+                const val VERSION_NAME = "$version"
+                const val VERSION_CODE = ${version.replace(".", "")}
+            }
+            """.trimIndent()
+        )
+        println("Generated AppVersion.kt with version: $version")
+    }
+}
+
+// 确保在编译前生成版本号
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+    dependsOn("generateVersionConstants")
+}
+
+kotlin {
+    sourceSets {
+        commonMain {
+            kotlin.srcDir(layout.buildDirectory.dir("generated/version"))
         }
     }
 }
@@ -130,6 +179,9 @@ compose.desktop {
 
         jvmArgs("-Dfile.encoding=UTF-8")
         jvmArgs("-Dsun.net.http.allowRestrictedHeaders=true")
+        // Note: --enable-native-access is only needed for NightMonkeys (AVIF/HEIF support)
+        // Uncomment if you enable AVIF/HEIF support
+        // jvmArgs("--enable-native-access=ALL-UNNAMED")
 
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)

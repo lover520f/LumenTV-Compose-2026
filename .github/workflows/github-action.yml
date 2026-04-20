@@ -10,72 +10,9 @@ jobs:
     uses: ./.github/workflows/set-tag-workflow.yml
 
   build-updater:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        include:
-          - os: ubuntu-latest
-            goos: linux
-            goarch: amd64
-            binary_name: updater-linux-amd64
-          - os: ubuntu-latest
-            goos: linux
-            goarch: arm64
-            binary_name: updater-linux-arm64
-          - os: windows-latest
-            goos: windows
-            goarch: amd64
-            binary_name: updater-windows-amd64.exe
-          - os: macos-latest
-            goos: darwin
-            goarch: amd64
-            binary_name: updater-macos-amd64
-          - os: macos-latest
-            goos: darwin
-            goarch: arm64
-            binary_name: updater-macos-arm64
-    steps:
-      - name: 📥 Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: 🐹 Set up Go environment
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.23'
-          cache: true
-
-      - name: 🔧 Build updater for ${{ matrix.goos }}/${{ matrix.goarch }}
-        working-directory: ./updater
-        shell: bash
-        run: |
-          echo "🚀 开始构建 updater: ${{ matrix.binary_name }}"
-          echo "🖥️  目标平台: ${{ matrix.goos }}/${{ matrix.goarch }}"
-          
-          go mod tidy
-          echo "📦 Go modules 已同步"
-          
-          BUILD_CMD="GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} CGO_ENABLED=0 go build -ldflags=\"-s -w\" -o ../${{ matrix.binary_name }} ."
-          echo "🔨 执行构建命令: $BUILD_CMD"
-          
-          eval $BUILD_CMD
-          
-          if [ -f "../${{ matrix.binary_name }}" ]; then
-            echo "✅ Updater 构建成功: ${{ matrix.binary_name }}"
-            ls -la "../${{ matrix.binary_name }}"
-            echo "📏 文件大小: $(du -h "../${{ matrix.binary_name }}" | cut -f1)"
-          else
-            echo "❌ Updater 构建失败: ${{ matrix.binary_name }} 未找到"
-            exit 1
-          fi
-
-      - name: 📤 Upload updater artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.binary_name }}
-          path: ./${{ matrix.binary_name }}
-          retention-days: 1
+    uses: ./.github/workflows/build-updater.yml
+    with:
+      release_tag: ${{ needs.set-tag.outputs.tag }}
 
   build-win:
     runs-on: windows-latest
@@ -90,13 +27,16 @@ jobs:
           distribution: 'temurin'
           java-version: 17
           cache: 'gradle'
-
-      - name: 🏗️ Build LumenTV Windows
-        run: |
-          echo "🔨 开始构建 LumenTV Windows 版本"
-            ./gradlew packageReleaseDistributionForCurrentOS --quiet --console=plain
-            ./gradlew createReleaseDistributable --quiet --console=plain
-      - name: 📦 Package Windows application
+      - run: echo ${{needs.set-tag.outputs.tag}}
+      - run: ls
+      - run: ./gradlew packageReleaseDistributionForCurrentOS
+      - run: ./gradlew createReleaseDistributable
+      - run: tree /f ./composeApp/build
+      - run: ls && tree ./desktopApp /f
+      - name: compress
+        shell: pwsh
+        run: Compress-Archive -Path "./composeApp/build/compose/binaries/main-release/app/LumenTV" -DestinationPath ./LumenTV-win-${{ needs.set-tag.outputs.tag }}.zip
+      - name: move result to root
         shell: pwsh
         run: |
           # 移动 MSI 文件到根目录
@@ -143,53 +83,16 @@ jobs:
           distribution: 'temurin'
           java-version: 17
           cache: 'gradle'
-
-      - name: 🏗️ Build LumenTV Linux
-        run: |
-          chmod +x ./gradlew
-          echo "🔨 开始构建 LumenTV Linux 版本"
-          ./gradlew packageReleaseDistributionForCurrentOS --quiet --console=plain
-          ./gradlew createReleaseDistributable --quiet --console=plain
-      - name: 📦 Package Linux application
-        run: |
-          echo "1. 📦 构建 LumenTV Linux 包"
-          # 移动 DEB 文件到根目录
-          DEB_DIR="./composeApp/build/compose/binaries/main-release/deb"
-          if [ -d "$DEB_DIR" ]; then
-            find "$DEB_DIR" -name "*.deb" -exec sh -c 'mv "$1" "./LumenTV-linux-${{ needs.set-tag.outputs.tag }}.deb"' _ {} \;
-            echo "✅ DEB 文件已移动并重命名"
-          else
-            echo "⚠️ DEB 目录不存在: $DEB_DIR"
-          fi
-          
-          # 创建并移动 ZIP 文件
-          echo "2. 📦 构建 LumenTV Linux ZIP 包"
-          APP_DIR="./composeApp/build/compose/binaries/main-release/app/LumenTV"
-          if [ -d "$APP_DIR" ]; then
-            ZIP_NAME="LumenTV-linux-${{ needs.set-tag.outputs.tag }}.zip"
-            
-            echo "🔍 检查应用目录内容:"
-            ls -la "$APP_DIR"
-            echo "🔍 完整路径检查:"
-            pwd
-            echo "APP_DIR 变量值: $APP_DIR"
-          
-            zip -r -q "./$ZIP_NAME" "$APP_DIR"
-            echo "✅ Linux ZIP 包已创建: $ZIP_NAME"
-            # 验证文件是否存在
-            if [ -f "$ZIP_NAME" ]; then
-              echo "✅ ZIP 文件验证通过: $(ls -lh $ZIP_NAME)"
-            else
-              echo "❌ ZIP 文件未找到，重新尝试"
-              exit 1
-            fi
-          else
-            echo "❌ 应用目录不存在: $APP_DIR"
-            exit 1
-          fi
-
-      - name: 📤 Upload Linux artifacts
-        uses: actions/upload-artifact@v4
+      - run: ls
+      - run: chmod +x ./gradlew && ./gradlew createReleaseDistributable
+      - run: ./gradlew packageReleaseDistributionForCurrentOS
+      - run: ls && tree
+      - name: compress
+        run: cd ./composeApp/build/compose/binaries/main-release/app && zip -q -r ./LumenTV-linux-${{ needs.set-tag.outputs.tag }}.zip ./LumenTV
+      - name: move file
+        run: mv ./composeApp/build/compose/binaries/main-release/deb/*.deb ./LumenTV-linux-${{ needs.set-tag.outputs.tag }}.deb && mv ./composeApp/build/compose/binaries/main-release/app/*.zip ./
+      - run: ls
+      - uses: actions/upload-artifact@v4
         with:
           name: linux-file
           path: |
@@ -209,40 +112,16 @@ jobs:
           distribution: 'temurin'
           java-version: 17
           cache: 'gradle'
-
-      - name: 🏗️ Build LumenTV macOS
-        run: |
-          chmod +x ./gradlew
-          echo "🔨 开始构建 LumenTV macOS 版本"
-          ./gradlew packageReleaseDistributionForCurrentOS --quiet --console=plain
-
-      - name: 🏗️ Create distributable
-        run: ./gradlew createReleaseDistributable
-
-      - name: 📦 Package macOS application
-        run: |
-          # 移动 DMG 文件到根目录
-          DMG_DIR="./composeApp/build/compose/binaries/main-release/dmg"
-          if [ -d "$DMG_DIR" ]; then
-            find "$DMG_DIR" -name "*.dmg" -exec sh -c 'mv "$1" "./LumenTV-mac-${{ needs.set-tag.outputs.tag }}.dmg"' _ {} \;
-            echo "✅ DMG 文件已移动并重命名"
-          else
-            echo "⚠️ DMG 目录不存在: $DMG_DIR"
-          fi
-          
-          # 创建并移动 ZIP 文件
-          APP_PATH="./composeApp/build/compose/binaries/main-release/app/LumenTV.app"
-          if [ -d "$APP_PATH" ]; then
-            ZIP_NAME="LumenTV-mac-${{ needs.set-tag.outputs.tag }}.zip"
-            zip -q -r "./$ZIP_NAME" "$APP_PATH"
-            echo "✅ macOS ZIP 包已创建: $ZIP_NAME"
-          else
-            echo "❌ 应用目录不存在: $APP_PATH"
-            exit 1
-          fi
-
-      - name: 📤 Upload macOS artifacts
-        uses: actions/upload-artifact@v4
+      - run: ls
+      - run: chmod +x ./gradlew && ./gradlew createReleaseDistributable
+      - run: ./gradlew packageReleaseDistributionForCurrentOS
+      - run: ls
+      - name: compress
+        run: zip -q -r ./TV-mac-${{ needs.set-tag.outputs.tag }}.zip ./composeApp/build/compose/binaries/main-release/app
+      - name: move file
+        run: mv ./composeApp/build/compose/binaries/main-release/dmg/*.dmg ./LumenTV-mac-${{ needs.set-tag.outputs.tag }}.dmg
+      - run: ls
+      - uses: actions/upload-artifact@v4
         with:
           name: mac-file
           path: |
@@ -253,6 +132,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: [ build-win, build-linux, build-mac, set-tag, build-updater ]
     steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+
       - name: 📥 Download all artifacts
         uses: actions/download-artifact@v4
 
@@ -266,12 +148,12 @@ jobs:
           cp ./linux-file/* ./release-files/ 2>/dev/null || true
           cp ./mac-file/* ./release-files/ 2>/dev/null || true
           
-          # 复制 updater 文件
-          find . -path "*/updater-linux-amd64/updater-linux-amd64" -exec cp {} ./release-files/ \;
-          find . -path "*/updater-linux-arm64/updater-linux-arm64" -exec cp {} ./release-files/ \;
-          find . -path "*/updater-windows-amd64.exe/updater-windows-amd64.exe" -exec cp {} ./release-files/ \;
-          find . -path "*/updater-macos-amd64/updater-macos-amd64" -exec cp {} ./release-files/ \;
-          find . -path "*/updater-macos-arm64/updater-macos-arm64" -exec cp {} ./release-files/ \;
+          # 复制 updater 文件（artifact 名称已包含平台信息）
+          find . -path "*/updater-linux-amd64/updater" -exec cp {} ./release-files/updater-linux-amd64 \;
+          find . -path "*/updater-linux-arm64/updater" -exec cp {} ./release-files/updater-linux-arm64 \;
+          find . -path "*/updater-windows-amd64/updater.exe" -exec cp {} ./release-files/updater-windows-amd64.exe \;
+          find . -path "*/updater-macos-amd64/updater" -exec cp {} ./release-files/updater-macos-amd64 \;
+          find . -path "*/updater-macos-arm64/updater" -exec cp {} ./release-files/updater-macos-arm64 \;
 
           echo "📋 发布文件列表:"
           ls -la ./release-files/
@@ -279,23 +161,58 @@ jobs:
       - name: 📝 Generate version.json
         run: |
           echo "📝 生成版本信息文件"
-          cat > ./release-files/version.json << EOF
-          {
-            "version": "${{ needs.set-tag.outputs.tag }}",
-            "windows": {
-              "download_url": "https://github.com/${{ github.repository }}/releases/download/${{ needs.set-tag.outputs.tag }}/LumenTV-win-${{ needs.set-tag.outputs.tag }}.zip",
-              "msi_url": "https://github.com/${{ github.repository }}/releases/download/${{ needs.set-tag.outputs.tag }}/LumenTV-win-${{ needs.set-tag.outputs.tag }}.msi"
-            },
-            "linux": {
-              "download_url": "https://github.com/${{ github.repository }}/releases/download/${{ needs.set-tag.outputs.tag }}/LumenTV-linux-${{ needs.set-tag.outputs.tag }}.zip",
-              "deb_url": "https://github.com/${{ github.repository }}/releases/download/${{ needs.set-tag.outputs.tag }}/LumenTV-linux-${{ needs.set-tag.outputs.tag }}.deb"
-            },
-            "mac": {
-              "download_url": "https://github.com/${{ github.repository }}/releases/download/${{ needs.set-tag.outputs.tag }}/LumenTV-mac-${{ needs.set-tag.outputs.tag }}.zip",
-              "dmg_url": "https://github.com/${{ github.repository }}/releases/download/${{ needs.set-tag.outputs.tag }}/LumenTV-mac-${{ needs.set-tag.outputs.tag }}.dmg"
+          VERSION="${{ needs.set-tag.outputs.tag }}"
+          REPO="${{ github.repository }}"
+          printf '{\n  "version": "%s",\n  "windows": {\n    "download_url": "https://github.com/%s/releases/download/%s/LumenTV-win-%s.zip",\n    "msi_url": "https://github.com/%s/releases/download/%s/LumenTV-win-%s.msi"\n  },\n  "linux": {\n    "download_url": "https://github.com/%s/releases/download/%s/LumenTV-linux-%s.zip",\n    "deb_url": "https://github.com/%s/releases/download/%s/LumenTV-linux-%s.deb"\n  },\n  "mac": {\n    "download_url": "https://github.com/%s/releases/download/%s/LumenTV-mac-%s.zip",\n    "dmg_url": "https://github.com/%s/releases/download/%s/LumenTV-mac-%s.dmg"\n  }\n}\n' \
+            "$VERSION" \
+            "$REPO" "$VERSION" "$VERSION" \
+            "$REPO" "$VERSION" "$VERSION" \
+            "$REPO" "$VERSION" "$VERSION" \
+            "$REPO" "$VERSION" "$VERSION" \
+            "$REPO" "$VERSION" "$VERSION" \
+            "$REPO" "$VERSION" "$VERSION" \
+            > ./release-files/version.json
+
+      - name: 📖 Extract changelog for current version
+        id: changelog
+        run: |
+          echo "📖 从 CHANGELOG.md 提取 ${{ needs.set-tag.outputs.tag }} 的更新日志"
+          
+          # 去除版本号前缀的 'v' (CHANGELOG 中使用 v1.1.6 格式)
+          VERSION_WITH_V="${{ needs.set-tag.outputs.tag }}"
+          
+          # 使用 awk 提取对应版本的更新日志
+          CHANGELOG=$(awk -v version="$VERSION_WITH_V" '
+            BEGIN { found=0; content="" }
+            /^## / {
+              if (found) exit
+              if ($2 == version) {
+                found=1
+                next
+              }
             }
-          }
-          EOF
+            found && /^## / { exit }
+            found { 
+              if (content != "") content = content "\n"
+              content = content $0
+            }
+            END { print content }
+          ' CHANGELOG.md)
+          
+          # 如果未找到对应的版本日志，使用默认文本
+          if [ -z "$CHANGELOG" ]; then
+            echo "⚠️ 未找到 $VERSION_WITH_V 的更新日志，使用默认文本"
+            CHANGELOG=$(printf -- "- 发布新版本 %s\n- 详细更新内容请查看 CHANGELOG.md" "$VERSION_WITH_V")
+          fi
+          
+          echo "✅ 提取到的更新日志:"
+          echo "$CHANGELOG"
+          
+          # 将多行内容保存到环境变量（使用 GitHub Actions 的多行语法）
+          # 注意：需要对内容进行转义，避免 YAML 解析错误
+          echo "changelog<<CHANGELOG_EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGELOG" >> $GITHUB_OUTPUT
+          echo "CHANGELOG_EOF" >> $GITHUB_OUTPUT
 
       - name: 🚀 Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -306,22 +223,28 @@ jobs:
           body: |
             ## LumenTV ${{ needs.set-tag.outputs.tag }} 发布
             
-            ### 🔄 更新内容
-            - 发布独立的 updater 组件
-            - 优化自动更新流程
-            - 修复已知问题
+            ### 📝 更新日志
+            
+            ${{ steps.changelog.outputs.changelog }}
+            
+            ---
             
             ### 📦 包含文件
-            - Windows: MSI 安装包和 ZIP 压缩包
-            - Linux: DEB 包和 ZIP 压缩包  
-            - macOS: DMG 镜像和 ZIP 压缩包
-            - Updater: 各平台独立的更新器组件
-            - version.json: 版本信息文件
+            - **Windows**: MSI 安装包和 ZIP 压缩包
+            - **Linux**: DEB 包和 ZIP 压缩包  
+            - **macOS**: DMG 镜像和 ZIP 压缩包
+            - **Updater**: 各平台独立的更新器组件
+            - **version.json**: 版本信息文件
             
-            ### 🛠️ 技术说明
-            - updater 组件独立发布，便于自动更新系统使用
-            - 应用程序包不包含 updater，减小包体积
-            - 支持按需下载对应平台的 updater
+            ### 🔗 快速下载
+            
+            | 平台 | 安装包 | 压缩包 |
+            |------|--------|--------|
+            | Windows | [MSI](https://github.com/${{ github.repository }}/releases/download/${{ needs.set-tag.outputs.tag }}/LumenTV-win-${{ needs.set-tag.outputs.tag }}.msi) | [ZIP](https://github.com/${{ github.repository }}/releases/download/${{ needs.set-tag.outputs.tag }}/LumenTV-win-${{ needs.set-tag.outputs.tag }}.zip) |
+            | Linux | [DEB](https://github.com/${{ github.repository }}/releases/download/${{ needs.set-tag.outputs.tag }}/LumenTV-linux-${{ needs.set-tag.outputs.tag }}.deb) | [ZIP](https://github.com/${{ github.repository }}/releases/download/${{ needs.set-tag.outputs.tag }}/LumenTV-linux-${{ needs.set-tag.outputs.tag }}.zip) |
+            | macOS | [DMG](https://github.com/${{ github.repository }}/releases/download/${{ needs.set-tag.outputs.tag }}/LumenTV-mac-${{ needs.set-tag.outputs.tag }}.dmg) | [ZIP](https://github.com/${{ github.repository }}/releases/download/${{ needs.set-tag.outputs.tag }}/LumenTV-mac-${{ needs.set-tag.outputs.tag }}.zip) |
+            
+            > 💡 提示：完整的历史更新记录请查看 [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md)
           draft: false
           prerelease: false
     permissions:

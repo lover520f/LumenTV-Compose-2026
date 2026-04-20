@@ -1,28 +1,63 @@
 package com.corner.server.plugins
 
 import cn.hutool.core.io.file.FileNameUtil
+import com.corner.catvodcore.viewmodel.GlobalAppState.hideProgress
+import com.corner.catvodcore.viewmodel.GlobalAppState.showProgress
 import com.corner.server.logic.proxy
+import com.corner.util.net.createDefaultOkHttpClient
 import com.corner.ui.scene.SnackBar
 import com.corner.util.m3u8.M3U8Cache
 import com.corner.util.toSingleValueMap
+import com.corner.util.play.BrowserUtils
+import com.corner.util.playwright.PlaywrightBrowserManager
 import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.http.content.*
+import io.ktor.server.plugins.origin
+import io.ktor.server.request.receive
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
+import io.ktor.server.websocket.*
+import io.ktor.websocket.readText
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.launch
 import okhttp3.Response
 import java.io.IOException
 import java.io.InputStream
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.net.ConnectException
 import java.net.SocketTimeoutException
 import java.net.URLDecoder
-import java.util.concurrent.TimeUnit
+
+val webPlaybackFinishedFlow = MutableSharedFlow<Unit>(
+    replay = 0,
+    extraBufferCapacity = 1
+)
+
+/**
+ * 错误响应
+ */
+suspend fun errorResp(call: ApplicationCall) {
+    call.respondText(
+        text = HttpStatusCode.InternalServerError.description,
+        contentType = ContentType.Application.OctetStream,
+        status = HttpStatusCode.InternalServerError
+    ) {}
+}
+
+/**
+ * 错误响应
+ */
+suspend fun errorResp(call: ApplicationCall, msg: String) {
+    call.respondText(
+        text = msg,
+        contentType = ContentType.Application.OctetStream,
+        status = HttpStatusCode.InternalServerError
+    ) {}
+}
 
 fun Application.configureRouting() {
-
     routing {
         // 处理 CORS 预检请求
         options("/video/proxy") {
@@ -31,6 +66,69 @@ fun Application.configureRouting() {
             call.response.header("Access-Control-Allow-Headers", "*")
             call.response.header("Access-Control-Allow-Credentials", "true")
             call.respond(HttpStatusCode.OK)
+        }
+
+        /**
+         * 健康检查
+         */
+        get("/health") {
+            call.respondText("OK", ContentType.Text.Plain)
+        }
+
+        /**
+         * 获取浏览器状态
+         */
+        get("/api/playwright/status") {
+            val status = mapOf(
+                "available" to PlaywrightBrowserManager.isBrowserAvailable(),
+                "path" to PlaywrightBrowserManager.getBrowserExecutablePath(),
+                "cacheDir" to PlaywrightBrowserManager.getBrowserCacheDir(),
+                "tempDir" to PlaywrightBrowserManager.getTempDir()
+            )
+            call.respond(status)
+        }
+
+        /**
+         * 显示全局加载指示器
+         * GET /api/progress/show?message=可选的提示消息
+         */
+        get("/api/progress/show") {
+            val message = call.request.queryParameters["message"]
+            showProgress()
+                    
+            // 如果提供了消息，同时显示 SnackBar 提示
+            if (!message.isNullOrBlank()) {
+                SnackBar.postMsg(message, type = SnackBar.MessageType.INFO, key = "api_progress")
+            }
+                    
+            call.respond(mapOf(
+                "success" to true,
+                "message" to "加载指示器已显示"
+            ))
+        }
+        
+        /**
+         * 隐藏全局加载指示器
+         * GET /api/progress/hide
+         */
+        get("/api/progress/hide") {
+            hideProgress()
+                    
+            call.respond(mapOf(
+                "success" to true,
+                "message" to "加载指示器已隐藏"
+            ))
+        }
+                
+        // 保留旧 API 路径以保持兼容性（标记为废弃）
+        get("/postShowProgress") { 
+            showProgress()
+            call.respondText("已显示加载指示器（请使用 /api/progress/show）")
+        }
+        
+        get("/postHideProgress") {
+            hideProgress()
+            call.respondText("已隐藏加载指示器（请使用 /api/progress/hide）")
         }
 
         /**
@@ -64,6 +162,9 @@ fun Application.configureRouting() {
 
         /**
          * 弹窗消息
+         * 支持 GET 和 POST 请求
+         * GET: /postMsg?msg=消息内容&type=INFO&priority=0
+         * POST: {"msg": "消息内容", "type": "INFO", "priority": 0, "key": "unique_key"}
          */
         get("/postMsg") {
             val msg = call.request.queryParameters["msg"]
@@ -71,7 +172,73 @@ fun Application.configureRouting() {
                 call.respond(HttpStatusCode.MultiStatus, "消息不可为空")
                 return@get
             }
-            SnackBar.postMsg(msg!!)
+            
+            // 解析可选参数
+            val typeStr = call.request.queryParameters["type"] ?: "INFO"
+            val priorityStr = call.request.queryParameters["priority"] ?: "0"
+            val key = call.request.queryParameters["key"]
+            
+            // 转换消息类型
+            val messageType = try {
+                com.corner.ui.scene.SnackBar.MessageType.valueOf(typeStr.uppercase())
+            } catch (e: Exception) {
+                com.corner.ui.scene.SnackBar.MessageType.INFO
+            }
+            
+            // 转换优先级
+            val priority = priorityStr.toIntOrNull() ?: 0
+            
+            SnackBar.postMsg(msg!!, priority, messageType, key)
+            call.respondText("消息已发送: $msg (类型: $messageType, 优先级: $priority)")
+        }
+        
+        post("/postMsg") {
+            try {
+                val requestBody = call.receive<Map<String, String>>()
+                val msg = requestBody["msg"]
+                
+                if (msg.isNullOrBlank()) {
+                    call.respond(HttpStatusCode.BadRequest, mapOf(
+                        "error" to "消息内容不能为空",
+                        "required_fields" to listOf("msg"),
+                        "optional_fields" to listOf("type", "priority", "key")
+                    ))
+                    return@post
+                }
+                
+                // 解析可选参数
+                val typeStr = requestBody["type"] ?: "INFO"
+                val priorityStr = requestBody["priority"] ?: "0"
+                val key = requestBody["key"]
+                
+                // 转换消息类型
+                val messageType = try {
+                    com.corner.ui.scene.SnackBar.MessageType.valueOf(typeStr.uppercase())
+                } catch (e: Exception) {
+                    com.corner.ui.scene.SnackBar.MessageType.INFO
+                }
+                
+                // 转换优先级
+                val priority = priorityStr.toIntOrNull() ?: 0
+                
+                SnackBar.postMsg(msg, priority, messageType, key)
+                
+                call.respond(HttpStatusCode.OK, mapOf(
+                    "success" to true,
+                    "message" to "消息已发送",
+                    "data" to mapOf(
+                        "content" to msg,
+                        "type" to messageType.toString(),
+                        "priority" to priority,
+                        "key" to key
+                    )
+                ))
+            } catch (e: Exception) {
+                log.error("处理 POST /postMsg 请求失败", e)
+                call.respond(HttpStatusCode.BadRequest, mapOf(
+                    "error" to "请求格式错误: ${e.message}"
+                ))
+            }
         }
 
         /**
@@ -157,11 +324,8 @@ fun Application.configureRouting() {
                 return@get
             }
 
-            val client = OkHttpClient.Builder()
-                .followRedirects(true)
-                .connectTimeout(30, TimeUnit.SECONDS)
-                .readTimeout(30, TimeUnit.SECONDS)
-                .build()
+            // 使用带代理配置的HTTP客户端
+            val client = createDefaultOkHttpClient()
 
             try {
                 val requestBuilder = Request.Builder()
@@ -283,7 +447,8 @@ fun Application.configureRouting() {
                 errorResp(call, "URL解码失败")
                 return@get
             }
-            val client = OkHttpClient.Builder().build()
+            // 使用带代理配置的HTTP客户端
+            val client = createDefaultOkHttpClient()
             try {
                 val content = client.newCall(Request.Builder().url(decodedUrl).build())
                     .execute().use { response ->
@@ -316,27 +481,47 @@ fun Application.configureRouting() {
 
             call.respondText(content, ContentType.Application.OctetStream)
         }
+
+        /**
+         * WebSocket 端点 - 用于 Web 播放器事件通信
+         */
+        webSocket("/ws/video-events") {
+            log.info("WebSocket 连接已建立 from {}", call.request.origin.remoteHost)
+            log.info("Origin: {}", call.request.headers["Origin"])
+            log.info("Host: {}", call.request.headers["Host"])
+            
+            // 更新连接状态
+            BrowserUtils._webSocketConnectionState.value = true
+            
+            try {
+                for (frame in incoming) {
+                    frame as? io.ktor.websocket.Frame.Text ?: continue
+                    val message = frame.readText()
+                    log.info("收到 WebSocket 消息: {}", message)
+                    
+                    when (message) {
+                        "PLAYBACK_STARTED" -> {
+                            log.info("视频播放开始")
+                        }
+                        "PLAYBACK_FINISHED" -> {
+                            log.info("视频播放完成，触发下一集切换")
+                            // 发送事件到 flow
+                            launch {
+                                webPlaybackFinishedFlow.emit(Unit)
+                            }
+                        }
+                        else -> {
+                            log.debug("未知消息类型: {}", message)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                log.error("WebSocket 处理异常", e)
+            } finally {
+                // 连接关闭时更新状态
+                BrowserUtils._webSocketConnectionState.value = false
+                log.debug("WebSocket 连接已关闭")
+            }
+        }
     }
-}
-
-/**
- * 错误响应
- */
-suspend fun errorResp(call: ApplicationCall) {
-    call.respondText(
-        text = HttpStatusCode.InternalServerError.description,
-        contentType = ContentType.Application.OctetStream,
-        status = HttpStatusCode.InternalServerError
-    ) {}
-}
-
-/**
- * 错误响应
- */
-suspend fun errorResp(call: ApplicationCall, msg: String) {
-    call.respondText(
-        text = msg,
-        contentType = ContentType.Application.OctetStream,
-        status = HttpStatusCode.InternalServerError
-    ) {}
 }
